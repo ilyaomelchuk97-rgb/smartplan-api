@@ -95,7 +95,16 @@ window.SP_OBJECTS = (function () {
   function addObject(data) {
     var db = init();
     var o = { id: newId(), addr: data.addr || 'Неизвестный адрес', type: data.type || 'Объект', lat: data.lat || null, lng: data.lng || null, zu: data.zu || 0 };
-    db.objects.push(o); save(db); return o;
+    db.objects.push(o); save(db);
+    // Отправка на сервер
+    if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
+      fetch(window.SP_CONFIG.serverUrl + '/api/objects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(o)
+      }).catch(function() {});
+    }
+    return o;
   }
 
   return {
