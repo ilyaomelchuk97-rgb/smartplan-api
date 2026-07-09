@@ -678,6 +678,7 @@
       if (t.m !== newMaster) { t.m = newMaster; moved.push('мастер → ' + (target ? target.name : '?')); }
       if (t.d !== newOff) { t.d = newOff; moved.push('дата → ' + fmtShort(newOff)); }
       if (moved.length) {
+        if (TASKS_DB) { TASKS_DB.updateTask(t.id, t); }
         drawCalendarGrid();
         var load = loadForDay(newMaster, newOff);
         if (load > CAP) {
@@ -3118,6 +3119,8 @@
     window.reRenderCurrentScreen = refresh;
     var view = document.getElementById('view');
     if (view) view.style.padding = (S.screen === 'gmap') ? '0' : '';
+    // Обновляем задания из БД, чтобы подхватить изменения с сервера (синхронизация)
+    if (window.SP_TASKS) S.tasks = window.SP_TASKS.getTasks();
     if (S.screen === 'dashboard') renderDashboard();
     else if (S.screen === 'calendar') renderCalendar();
     else if (S.screen === 'map') renderMap();
@@ -3216,16 +3219,21 @@
     // Загрузка прогноза погоды
     loadWeatherForecast();
     setInterval(loadWeatherForecast, 3600000);
-    // Периодическая синхронизация с сервером каждые 30 сек
-    setInterval(function() {
-      if (DB.isServerOnline()) {
-        DB.syncFromServer();
-      } else {
-        DB.checkServer().then(function(online) {
-          if (online) DB.syncFromServer();
-        });
-      }
-    }, 30000);
+    // Рандомная синхронизация с сервером каждые 10-30 секунд
+    function scheduleNextSync() {
+      var delay = 10000 + Math.floor(Math.random() * 20000); // 10-30 сек
+      setTimeout(function() {
+        if (DB.isServerOnline()) {
+          DB.syncFromServer();
+        } else {
+          DB.checkServer().then(function(online) {
+            if (online) DB.syncFromServer();
+          });
+        }
+        scheduleNextSync(); // следующая итерация
+      }, delay);
+    }
+    scheduleNextSync();
   }).catch(function (err) {
     console.error('SmartPlan init error:', err);
     showLoginScreen();
