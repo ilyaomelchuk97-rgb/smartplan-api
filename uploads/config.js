@@ -17,7 +17,7 @@ window.SP_CONFIG = (function () {
     }
     // Продакшен — адрес вашего API на Render
     // ⚠️ ЗАМЕНИТЕ на свой URL после деплоя!
-    return 'https://smartplan-api.onrender.com';
+    return 'https://smartplan-api-596g.onrender.com';
   })();
 
   return {
