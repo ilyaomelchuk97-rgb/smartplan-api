@@ -2080,8 +2080,8 @@
         '<div class="perms-tooltip" style="position:absolute;top:100%;right:0;margin-top:8px;padding:14px 18px;background:#1f2937;color:#fff;border-radius:10px;font-size:13px;line-height:1.7;box-shadow:0 10px 30px rgba(0,0,0,0.5);width:340px;max-width:90vw;text-align:left;display:none;">' +
           'Если сайт не открывается:<br>' +
           'Нажмите кнопку <b style="color:#fca5a5;background:rgba(220,38,38,0.3);padding:1px 6px;border-radius:4px;">исправить ошибку</b>,<br>' +
-          'при переходе на сайт нажмите кнопку <b style="color:#fde047;background:rgba(250,204,21,0.2);padding:1px 6px;border-radius:4px;">дополнительно</b><br>' +
-          'и <b style="color:#86efac;background:rgba(34,197,94,0.2);padding:1px 6px;border-radius:4px;">разрешить</b>' +
+          'при переходе на сайт нажмите кнопку <b style="color:#fde047;background:rgba(250,204,21,0.2);padding:1px 6px;border-radius:4px;">дополнительные настройки</b><br>' +
+          'и <b style="color:#86efac;background:rgba(34,197,94,0.2);padding:1px 6px;border-radius:4px;">Перейти на сайт 178.124.167.87</b>' +
         '</div>' +
       '</div>' +
 
