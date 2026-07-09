@@ -2068,16 +2068,16 @@
     
     var html = '<div style="height:calc(100vh - 62px);width:100%;position:relative;background:#e8eef3;">' +
       
-      // Контейнер по центру экрана (поверх iframe)
-      '<div class="perms-wrapper" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;text-align:center;">' +
+      // Контейнер сверху справа (поверх iframe)
+      '<div class="perms-wrapper" style="position:absolute;top:8px;right:12px;z-index:20;text-align:center;">' +
         
-        // Сама кнопка
-        '<a href="' + permsUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;background:#dc2626;color:#fff;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;box-shadow:0 6px 20px rgba(220,38,38,0.5);cursor:pointer;transition:0.2s;">' +
+        // Сама кнопка (уменьшенная в 2 раза)
+        '<a href="' + permsUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:#dc2626;color:#fff;border-radius:6px;font-size:9px;font-weight:700;text-decoration:none;box-shadow:0 2px 8px rgba(220,38,38,0.4);cursor:pointer;transition:0.2s;">' +
           '🔧 Исправить ошибку' +
         '</a>' +
         
         // Окно подсказки (скрыто по умолчанию)
-        '<div class="perms-tooltip" style="margin-top:15px;padding:16px 20px;background:#1f2937;color:#fff;border-radius:10px;font-size:13px;line-height:1.7;box-shadow:0 10px 30px rgba(0,0,0,0.5);width:340px;max-width:90vw;text-align:left;display:none;">' +
+        '<div class="perms-tooltip" style="position:absolute;top:100%;right:0;margin-top:8px;padding:14px 18px;background:#1f2937;color:#fff;border-radius:10px;font-size:13px;line-height:1.7;box-shadow:0 10px 30px rgba(0,0,0,0.5);width:340px;max-width:90vw;text-align:left;display:none;">' +
           'Если сайт не открывается:<br>' +
           'Нажмите кнопку <b style="color:#fca5a5;background:rgba(220,38,38,0.3);padding:1px 6px;border-radius:4px;">исправить ошибку</b>,<br>' +
           'при переходе на сайт нажмите кнопку <b style="color:#fde047;background:rgba(250,204,21,0.2);padding:1px 6px;border-radius:4px;">дополнительно</b><br>' +
