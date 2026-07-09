@@ -3043,10 +3043,32 @@
     document.getElementById('un').textContent = u.full_name;
     document.getElementById('ur').textContent = info.label + (u.role === 'admin' ? '' : ' · ' + u.area);
     var ua = document.querySelector('a[data-screen="users"]');
-    if (ua) ua.style.display = ''; // В тестовом прототипе вкладка «Пользователи» всегда открыта для просмотра логинов и паролей
+    if (ua) ua.style.display = '';
     var ob = document.querySelector('button[data-action="optimize"]');
     if (ob) ob.style.display = (canPlan() ? 'inline-flex' : 'none');
+    // Обновление индикатора синхронизации
+    updateSyncIndicator();
   }
+
+  // Индикатор статуса синхронизации
+  function updateSyncIndicator() {
+    var existing = document.getElementById('sync-indicator');
+    if (!existing) {
+      var topbar = document.querySelector('.topbar');
+      if (!topbar) return;
+      var ind = document.createElement('div');
+      ind.id = 'sync-indicator';
+      ind.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);padding:4px 10px;border-radius:8px;background:#f1f5f9;cursor:pointer;transition:.2s;';
+      ind.title = 'Синхронизация с сервером';
+      ind.onclick = function() { DB.syncFromServer().then(function() { toast('ok', '✅ Данные синхронизированы'); }); };
+      topbar.insertBefore(ind, topbar.querySelector('.usr'));
+    }
+    var el = document.getElementById('sync-indicator');
+    if (!el) return;
+    var online = DB.isServerOnline();
+    el.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:' + (online ? '#16a34a' : '#dc2626') + ';display:inline-block;' + (online ? '' : 'animation:pulseSoft 1.5s infinite') + '"></span>' + (online ? 'Сервер' : 'Автономно');
+  }
+  setInterval(updateSyncIndicator, 5000);
 
   /* ---------- ВХОД / СЕССИЯ ---------- */
   function onLoginSubmit(e) {
@@ -3191,10 +3213,19 @@
   Promise.all([DB.ensureSeed(), WORK.ensureSeed()]).then(function () {
     var u = DB.getSession();
     if (u) enterApp(u); else showLoginScreen();
-    // Загрузка прогноза погоды (Яндекс.Погода / Open-Meteo)
+    // Загрузка прогноза погоды
     loadWeatherForecast();
-    // Обновление прогноза каждый час
     setInterval(loadWeatherForecast, 3600000);
+    // Периодическая синхронизация с сервером каждые 30 сек
+    setInterval(function() {
+      if (DB.isServerOnline()) {
+        DB.syncFromServer();
+      } else {
+        DB.checkServer().then(function(online) {
+          if (online) DB.syncFromServer();
+        });
+      }
+    }, 30000);
   }).catch(function (err) {
     console.error('SmartPlan init error:', err);
     showLoginScreen();
