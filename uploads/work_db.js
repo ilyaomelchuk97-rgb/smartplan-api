@@ -115,8 +115,14 @@ window.SP_WORK = (function () {
       opt_workers: parseInt(data.opt_workers) || 2
     };
     db.areas[area].push(w); save(db);
-    // Синхронизация с сервером
-    if (window.SP_DB && window.SP_DB.syncWork) window.SP_DB.syncWork(area, w);
+    // Отправка на сервер
+    if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
+      fetch(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(w)
+      }).catch(function() {});
+    }
     return w;
   }
   function updateWork(area, id, data) {
@@ -134,8 +140,14 @@ window.SP_WORK = (function () {
       if (data.min_workers !== undefined) arr[i].min_workers = parseInt(data.min_workers) || 1;
       if (data.opt_workers !== undefined) arr[i].opt_workers = parseInt(data.opt_workers) || 2;
       save(db);
-      // Синхронизация с сервером
-      if (window.SP_DB && window.SP_DB.syncWork) window.SP_DB.syncWork(area, arr[i]);
+      // Отправка на сервер
+      if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
+        fetch(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area) + '/' + id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(arr[i])
+        }).catch(function() {});
+      }
       return arr[i];
     }
     return null;
@@ -144,8 +156,12 @@ window.SP_WORK = (function () {
     var db = init(); var arr = db.areas[area] || [];
     db.areas[area] = arr.filter(function (w) { return w.id !== id; });
     save(db);
-    // Синхронизация с сервером
-    if (window.SP_DB && window.SP_DB.syncWork) window.SP_DB.syncWork(area, { id: id }, 'delete');
+    // Отправка на сервер
+    if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
+      fetch(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area) + '/' + id, {
+        method: 'DELETE'
+      }).catch(function() {});
+    }
   }
 
   return {
