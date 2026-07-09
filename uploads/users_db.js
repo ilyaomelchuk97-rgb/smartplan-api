@@ -115,7 +115,16 @@ window.SP_USERS_DB = (function () {
         full_name: data.full_name, role: data.role, area: data.area || '',
         color: data.color || nextColor(), active: data.active !== false, created: Date.now()
       };
-      db.users.push(u); save(db); return u;
+      db.users.push(u); save(db);
+      // Синхронизация с сервером
+      if (window.SP_DB) {
+        fetch((window.SP_CONFIG.serverUrl || '') + '/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(u)
+        }).catch(function() {});
+      }
+      return u;
     });
   }
   function updateUser(id, data) {
@@ -133,14 +142,31 @@ window.SP_USERS_DB = (function () {
     if (data.color !== undefined) u.color = data.color;
     if (data.password !== undefined) u.plain_password = data.password;
     var op = data.password ? hash(data.password).then(function (h) { u.password = h; }) : Promise.resolve();
-    return op.then(function () { save(db); return u; });
+    return op.then(function () { save(db);
+      // Синхронизация с сервером
+      if (window.SP_CONFIG) {
+        fetch((window.SP_CONFIG.serverUrl || '') + '/api/users/' + id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Object.assign({ id: id }, data))
+        }).catch(function() {});
+      }
+      return u;
+    });
   }
   function deleteUser(id) {
     var db = init(), u = getUser(id);
     if (!u) return Promise.reject(new Error('Пользователь не найден'));
     if (u.role === 'admin' && countAdmins() <= 1) return Promise.reject(new Error('Нельзя удалить последнего администратора'));
     db.users = db.users.filter(function (x) { return x.id !== id; });
-    save(db); return Promise.resolve();
+    save(db);
+    // Синхронизация с сервером
+    if (window.SP_CONFIG) {
+      fetch((window.SP_CONFIG.serverUrl || '') + '/api/users/' + id, {
+        method: 'DELETE'
+      }).catch(function() {});
+    }
+    return Promise.resolve();
   }
   function authenticate(login, password) {
     login = (login || '').trim().toLowerCase();
