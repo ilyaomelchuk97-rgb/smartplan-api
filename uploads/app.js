@@ -2065,38 +2065,35 @@
   function renderPerms() {
     var view = document.getElementById('view');
     var permsUrl = 'https://178.124.167.87:11442/orgs-rep/100308563/6393';
-    var html = '<div style="height:calc(100vh - 62px);width:100%;position:relative;display:flex;flex-direction:column;background:#e8eef3;">' +
-      // Кнопка с подсказкой
-      '<div style="position:absolute;top:10px;right:14px;z-index:20;">' +
-        '<div style="position:relative;display:inline-block;">' +
-          '<a href="' + permsUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:#dc2626;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;box-shadow:0 2px 8px rgba(220,38,38,.35);cursor:pointer;transition:.2s;" onmouseover="this.style.background=#b91c1c" onmouseout="this.style.background=#dc2626">🔧 Исправить ошибку</a>' +
-          '<div style="display:none;position:absolute;top:100%;right:0;margin-top:8px;width:340px;background:#1f2d3d;color:#fff;padding:14px 16px;border-radius:10px;font-size:12px;line-height:1.6;box-shadow:0 8px 24px rgba(0,0,0,.3);z-index:30;" onmouseover="this.style.display=block" onmouseout="this.style.display=none" id="perms-tip">' +
-            '<div style="display:flex;gap:10px;align-items:flex-start;">' +
-              '<span style="font-size:16px;flex:none;">💡</span>' +
-              '<div>Если сайт не загружается:<br>' +
-                'Нажмите кнопку <b style="background:#dc2626;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;">исправить ошибку</b><br>' +
-                'при переходе на сайт нажмите кнопку <b style="background:#facc15;color:#000;padding:2px 8px;border-radius:4px;font-size:12px;">дополнительно</b><br>' +
-                'и <b style="background:#16a34a;color:#fff;padding:2px 10px;border-radius:4px;font-size:12px;">разрешить</b>' +
-              '</div>' +
-            '</div>' +
-            // Стрелка
-            '<div style="position:absolute;bottom:100%;right:24px;border:7px solid transparent;border-bottom-color:#1f2d3d;"></div>' +
-          '</div>' +
+    
+    var html = '<div style="height:calc(100vh - 62px);width:100%;position:relative;background:#e8eef3;">' +
+      
+      // Контейнер по центру экрана (поверх iframe)
+      '<div class="perms-wrapper" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;text-align:center;">' +
+        
+        // Сама кнопка
+        '<a href="' + permsUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;background:#dc2626;color:#fff;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;box-shadow:0 6px 20px rgba(220,38,38,0.5);cursor:pointer;transition:0.2s;">' +
+          '🔧 Исправить ошибку' +
+        '</a>' +
+        
+        // Окно подсказки (скрыто по умолчанию)
+        '<div class="perms-tooltip" style="margin-top:15px;padding:16px 20px;background:#1f2937;color:#fff;border-radius:10px;font-size:13px;line-height:1.7;box-shadow:0 10px 30px rgba(0,0,0,0.5);width:340px;max-width:90vw;text-align:left;display:none;">' +
+          'Если сайт не открывается:<br>' +
+          'Нажмите кнопку <b style="color:#fca5a5;background:rgba(220,38,38,0.3);padding:1px 6px;border-radius:4px;">исправить ошибку</b>,<br>' +
+          'при переходе на сайт нажмите кнопку <b style="color:#fde047;background:rgba(250,204,21,0.2);padding:1px 6px;border-radius:4px;">дополнительно</b><br>' +
+          'и <b style="color:#86efac;background:rgba(34,197,94,0.2);padding:1px 6px;border-radius:4px;">разрешить</b>' +
         '</div>' +
       '</div>' +
-      // Скрипт для показа подсказки при наведении
-      '<script>' +
-        '(function(){' +
-          'var btn = document.querySelector("a[href=\'' + permsUrl + '\']");' +
-          'var tip = document.getElementById("perms-tip");' +
-          'if(btn && tip){' +
-            'btn.parentElement.addEventListener("mouseenter",function(){tip.style.display="block";});' +
-            'btn.parentElement.addEventListener("mouseleave",function(){tip.style.display="none";});' +
-          '}' +
-        '})();' +
-      '</script>' +
-      '<iframe src="' + permsUrl + '" allowfullscreen loading="eager" title="Разрешения на производство работ" style="flex:1;width:100%;height:100%;border:0;display:block;"></iframe>' +
+
+      // CSS-правило для показа подсказки при наведении мыши
+      '<style>' +
+        '.perms-wrapper:hover .perms-tooltip { display: block !important; }' +
+      '</style>' +
+
+      // Еслирамба на весь экран
+      '<iframe src="' + permsUrl + '" allowfullscreen loading="eager" title="Разрешения на производство работ" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;"></iframe>' +
     '</div>';
+    
     view.innerHTML = html;
   }
 
