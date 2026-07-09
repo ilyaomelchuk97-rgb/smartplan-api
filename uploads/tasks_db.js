@@ -44,8 +44,14 @@ window.SP_TASKS = (function () {
     var db = init();
     var t = Object.assign({ id: 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) }, data);
     db.tasks.push(t); save(db);
-    // Синхронизация с сервером
-    if (window.SP_DB && window.SP_DB.syncTask) window.SP_DB.syncTask(t);
+    // Отправка на сервер
+    if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
+      fetch(window.SP_CONFIG.serverUrl + '/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(t)
+      }).catch(function() {});
+    }
     return t;
   }
   function updateTask(id, data) {
@@ -54,16 +60,26 @@ window.SP_TASKS = (function () {
     if (!t) return null;
     Object.assign(t, data);
     save(db);
-    // Синхронизация с сервером
-    if (window.SP_DB && window.SP_DB.syncTask) window.SP_DB.syncTask(t);
+    // Отправка на сервер
+    if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
+      fetch(window.SP_CONFIG.serverUrl + '/api/tasks/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(t)
+      }).catch(function() {});
+    }
     return t;
   }
   function deleteTask(id) {
     var db = init();
     db.tasks = db.tasks.filter(function (t) { return t.id !== id; });
     save(db);
-    // Синхронизация с сервером
-    if (window.SP_DB && window.SP_DB.syncTask) window.SP_DB.syncTask({ id: id }, 'delete');
+    // Отправка на сервер
+    if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
+      fetch(window.SP_CONFIG.serverUrl + '/api/tasks/' + id, {
+        method: 'DELETE'
+      }).catch(function() {});
+    }
   }
   function resetSeed() { localStorage.removeItem(KEY); memoryDB = null; return ensureSeed(); }
 
