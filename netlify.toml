@@ -1,0 +1,14 @@
+# Netlify — конфиг деплоя фронтенда
+
+[build]
+  publish = "uploads"
+  command = "echo 'Фронтенд — статические файлы, сборка не нужна'"
+
+# Заголовки CORS (на случай если запросы идут напрямую)
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "no-cache"
+
+# SPA-редиректы не нужны (одностраничное приложение)
