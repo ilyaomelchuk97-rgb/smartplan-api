@@ -2066,6 +2066,35 @@
     var view = document.getElementById('view');
     var permsUrl = 'https://178.124.167.87:11442/orgs-rep/100308563/6393';
     var html = '<div style="height:calc(100vh - 62px);width:100%;position:relative;display:flex;flex-direction:column;background:#e8eef3;">' +
+      // Кнопка с подсказкой
+      '<div style="position:absolute;top:10px;right:14px;z-index:20;">' +
+        '<div style="position:relative;display:inline-block;">' +
+          '<a href="' + permsUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:#dc2626;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;box-shadow:0 2px 8px rgba(220,38,38,.35);cursor:pointer;transition:.2s;" onmouseover="this.style.background=#b91c1c" onmouseout="this.style.background=#dc2626">🔧 Исправить ошибку</a>' +
+          '<div style="display:none;position:absolute;top:100%;right:0;margin-top:8px;width:340px;background:#1f2d3d;color:#fff;padding:14px 16px;border-radius:10px;font-size:12px;line-height:1.6;box-shadow:0 8px 24px rgba(0,0,0,.3);z-index:30;" onmouseover="this.style.display=block" onmouseout="this.style.display=none" id="perms-tip">' +
+            '<div style="display:flex;gap:10px;align-items:flex-start;">' +
+              '<span style="font-size:16px;flex:none;">💡</span>' +
+              '<div>Если сайт не загружается:<br>' +
+                'Нажмите кнопку <b style="background:#dc2626;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;">исправить ошибку</b><br>' +
+                'при переходе на сайт нажмите кнопку <b style="background:#facc15;color:#000;padding:2px 8px;border-radius:4px;font-size:12px;">дополнительно</b><br>' +
+                'и <b style="background:#16a34a;color:#fff;padding:2px 10px;border-radius:4px;font-size:12px;">разрешить</b>' +
+              '</div>' +
+            '</div>' +
+            // Стрелка
+            '<div style="position:absolute;bottom:100%;right:24px;border:7px solid transparent;border-bottom-color:#1f2d3d;"></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      // Скрипт для показа подсказки при наведении
+      '<script>' +
+        '(function(){' +
+          'var btn = document.querySelector("a[href=\'' + permsUrl + '\']");' +
+          'var tip = document.getElementById("perms-tip");' +
+          'if(btn && tip){' +
+            'btn.parentElement.addEventListener("mouseenter",function(){tip.style.display="block";});' +
+            'btn.parentElement.addEventListener("mouseleave",function(){tip.style.display="none";});' +
+          '}' +
+        '})();' +
+      '</script>' +
       '<iframe src="' + permsUrl + '" allowfullscreen loading="eager" title="Разрешения на производство работ" style="flex:1;width:100%;height:100%;border:0;display:block;"></iframe>' +
     '</div>';
     view.innerHTML = html;
