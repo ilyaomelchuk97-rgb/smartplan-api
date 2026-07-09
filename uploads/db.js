@@ -1,8 +1,10 @@
 /* ============================================================
    SmartPlan — ЕДИНЫЙ КООРДИНАТОР БАЗ ДАННЫХ (db.js)
    ------------------------------------------------------------
-   Связывает фронтенд с бэкендом на Render.
-   При недоступности сервера — fallback на localStorage.
+   Надёжная двусторонняя синхронизация с сервером на Render.
+   - При старте: загрузка ВСЕХ данных с сервера
+   - При каждом изменении: немедленная отправка на сервер
+   - Fallback на localStorage при недоступности сервера
    ============================================================ */
 window.SP_DB = (function () {
   'use strict';
@@ -11,103 +13,216 @@ window.SP_DB = (function () {
   var API = CFG.serverUrl || '';
   var USE_SERVER = CFG.useServerApi !== false;
   var EP = CFG.endpoints || {};
-
-  // Проверка доступности сервера
   var serverOnline = false;
-  function checkServer() {
-    if (!USE_SERVER || !API) return Promise.resolve(false);
-    return fetch(API + EP.health, { method: 'GET' })
-      .then(function(r) { return r.ok; })
-      .then(function(ok) { serverOnline = ok; return ok; })
-      .catch(function() { serverOnline = false; return false; });
+
+  // ============================================================
+  // НИЗКОУРОВНЕВЫЕ HTTP-ЗАПРОСЫ (всегда пытаются отправить)
+  // ============================================================
+  function apiGet(path) {
+    return fetch(API + path, { method: 'GET' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
   }
 
-  // === СИНХРОНИЗАЦИЯ С СЕРВЕРОМ ===
-  // Загрузка всех данных с сервера → запись в localStorage → перезагрузка модулей
+  function apiPost(path, data) {
+    return fetch(API + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+
+  function apiPut(path, data) {
+    return fetch(API + path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+
+  function apiDelete(path) {
+    return fetch(API + path, { method: 'DELETE' })
+      .then(function(r) { return r.json(); });
+  }
+
+  // ============================================================
+  // ПРОВЕРКА ДОСТУПНОСТИ СЕРВЕРА
+  // ============================================================
+  function checkServer() {
+    if (!USE_SERVER || !API) return Promise.resolve(false);
+    return apiGet(EP.health)
+      .then(function(data) {
+        serverOnline = !!(data && data.status === 'ok');
+        console.log(serverOnline ? '✅ Сервер доступен' : '❌ Сервер недоступен');
+        return serverOnline;
+      })
+      .catch(function() {
+        serverOnline = false;
+        console.log('❌ Сервер недоступен');
+        return false;
+      });
+  }
+
+  // ============================================================
+  // ПОЛНАЯ ЗАГРУЗКА ДАННЫХ С СЕРВЕРА → localStorage
+  // ============================================================
   function syncFromServer() {
-    if (!USE_SERVER) return Promise.resolve();
+    if (!serverOnline) return Promise.resolve();
+    console.log('🔄 Синхронизация данных с сервера...');
 
-    return Promise.all([
-      // Пользователи
-      fetch(API + EP.users).then(function(r) { return r.json(); }).then(function(data) {
-        if (data && data.users) {
-          localStorage.setItem('smartplan_users_db', JSON.stringify({ schema: 3, users: data.users }));
-          if (window.SP_USERS_DB) window.SP_USERS_DB.reloadFromCloud({ schema: 3, users: data.users });
+    var promises = [];
+
+    // Пользователи
+    promises.push(
+      apiGet(EP.users).then(function(data) {
+        if (data && data.users && data.users.length >= 0) {
+          var dbData = { schema: 3, users: data.users };
+          try { localStorage.setItem('smartplan_users_db', JSON.stringify(dbData)); } catch(e) {}
+          if (window.SP_USERS_DB) window.SP_USERS_DB.reloadFromCloud(dbData);
+          console.log('  👥 Пользователи: ' + data.users.length);
         }
-      }).catch(function() {}),
+      }).catch(function(e) { console.warn('  👥 Ошибка загрузки пользователей:', e.message); })
+    );
 
-      // Виды работ
-      fetch(API + EP.works + '/УБиРОГС').then(function(r) { return r.json(); }).then(function(data) {
+    // Виды работ
+    promises.push(
+      apiGet(EP.works + '/УБиРОГС').then(function(data) {
         if (data && data.works) {
-          localStorage.setItem('smartplan_work_catalog', JSON.stringify({ schema: 5, areas: { 'УБиРОГС': data.works } }));
-          if (window.SP_WORK) window.SP_WORK.reloadFromCloud({ schema: 5, areas: { 'УБиРОГС': data.works } });
+          var dbData = { schema: 5, areas: { 'УБиРОГС': data.works } };
+          try { localStorage.setItem('smartplan_work_catalog', JSON.stringify(dbData)); } catch(e) {}
+          if (window.SP_WORK) window.SP_WORK.reloadFromCloud(dbData);
+          console.log('  🔧 Виды работ: ' + data.works.length);
         }
-      }).catch(function() {}),
+      }).catch(function(e) { console.warn('  🔧 Ошибка загрузки работ:', e.message); })
+    );
 
-      // Объекты
-      fetch(API + EP.objects).then(function(r) { return r.json(); }).then(function(data) {
+    // Объекты
+    promises.push(
+      apiGet(EP.objects).then(function(data) {
         if (data && data.objects) {
-          localStorage.setItem('smartplan_objects_db', JSON.stringify({ schema: 2, objects: data.objects }));
-          if (window.SP_OBJECTS) window.SP_OBJECTS.reloadFromCloud({ schema: 2, objects: data.objects });
+          var dbData = { schema: 2, objects: data.objects };
+          try { localStorage.setItem('smartplan_objects_db', JSON.stringify(dbData)); } catch(e) {}
+          if (window.SP_OBJECTS) window.SP_OBJECTS.reloadFromCloud(dbData);
+          console.log('  📍 Объекты: ' + data.objects.length);
         }
-      }).catch(function() {}),
+      }).catch(function(e) { console.warn('  📍 Ошибка загрузки объектов:', e.message); })
+    );
 
-      // Задания
-      fetch(API + EP.tasks).then(function(r) { return r.json(); }).then(function(data) {
+    // Задания
+    promises.push(
+      apiGet(EP.tasks).then(function(data) {
         if (data && data.tasks) {
-          localStorage.setItem('smartplan_tasks_db', JSON.stringify({ schema: 3, tasks: data.tasks }));
-          if (window.SP_TASKS) window.SP_TASKS.reloadFromCloud({ schema: 3, tasks: data.tasks });
+          var dbData = { schema: 3, tasks: data.tasks };
+          try { localStorage.setItem('smartplan_tasks_db', JSON.stringify(dbData)); } catch(e) {}
+          if (window.SP_TASKS) window.SP_TASKS.reloadFromCloud(dbData);
+          console.log('  📋 Задания: ' + data.tasks.length);
         }
-      }).catch(function() {}),
-    ]).then(function() {
-      console.log('Синхронизация с сервером завершена');
+      }).catch(function(e) { console.warn('  📋 Ошибка загрузки заданий:', e.message); })
+    );
+
+    return Promise.all(promises).then(function() {
+      console.log('✅ Синхронизация завершена');
+      // Перерисовка интерфейса
       if (typeof window.reRenderCurrentScreen === 'function') {
-        setTimeout(window.reRenderCurrentScreen, 100);
+        setTimeout(window.reRenderCurrentScreen, 50);
       }
     });
   }
 
-  // === ОТПРАВКА ИЗМЕНЕНИЙ НА СЕРВЕР ===
-  function postJSON(url, data) {
-    if (!serverOnline) return Promise.resolve();
-    return fetch(API + url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    }).catch(function(e) { console.warn('Синхронизация не удалась:', e.message); });
+  // ============================================================
+  // ОТПРАВКА ИЗМЕНЕНИЙ НА СЕРВЕР (всегда пытается, без проверки serverOnline)
+  // ============================================================
+
+  // Пользователь: создать/обновить
+  function sendUser(user) {
+    if (!API) return;
+    apiPost(EP.users, user)
+      .then(function() { console.log('✅ Пользователь отправлен на сервер:', user.login); })
+      .catch(function(e) { console.warn('⚠️ Ошибка отправки пользователя:', e.message); });
   }
 
-  function putJSON(url, data) {
-    if (!serverOnline) return Promise.resolve();
-    return fetch(API + url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    }).catch(function(e) { console.warn('Синхронизация не удалась:', e.message); });
+  // Пользователь: удалить
+  function sendUserDelete(id) {
+    if (!API) return;
+    apiDelete(EP.users + '/' + id)
+      .then(function() { console.log('✅ Пользователь удалён на сервере:', id); })
+      .catch(function(e) { console.warn('⚠️ Ошибка удаления пользователя:', e.message); });
   }
 
-  function deleteJSON(url) {
-    if (!serverOnline) return Promise.resolve();
-    return fetch(API + url, { method: 'DELETE' }).catch(function(e) {});
+  // Работа: создать/обновить
+  function sendWork(area, work) {
+    if (!API) return;
+    apiPost(EP.works + '/' + area, work)
+      .then(function() { console.log('✅ Работа отправлена на сервер:', work.name); })
+      .catch(function(e) { console.warn('⚠️ Ошибка отправки работы:', e.message); });
   }
 
-  // === ИНИЦИАЛИЗАЦИЯ ===
+  // Работа: удалить
+  function sendWorkDelete(area, id) {
+    if (!API) return;
+    apiDelete(EP.works + '/' + area + '/' + id)
+      .then(function() { console.log('✅ Работа удалена на сервере:', id); })
+      .catch(function(e) { console.warn('⚠️ Ошибка удаления работы:', e.message); });
+  }
+
+  // Задание: создать/обновить
+  function sendTask(task) {
+    if (!API) return;
+    // Нормализуем данные для сервера
+    var payload = Object.assign({}, task);
+    if (payload.works && Array.isArray(payload.works)) {
+      // сервер ожидает works как массив (сам сериализует)
+    }
+    apiPost(EP.tasks, payload)
+      .then(function() { console.log('✅ Задание отправлено на сервер:', task.id); })
+      .catch(function(e) { console.warn('⚠️ Ошибка отправки задания:', e.message); });
+  }
+
+  // Задание: удалить
+  function sendTaskDelete(id) {
+    if (!API) return;
+    apiDelete(EP.tasks + '/' + id)
+      .then(function() { console.log('✅ Задание удалено на сервере:', id); })
+      .catch(function(e) { console.warn('⚠️ Ошибка удаления задания:', e.message); });
+  }
+
+  // Объект: создать/обновить
+  function sendObject(obj) {
+    if (!API) return;
+    apiPost(EP.objects, obj)
+      .then(function() { console.log('✅ Объект отправлен на сервер:', obj.addr); })
+      .catch(function(e) { console.warn('⚠️ Ошибка отправки объекта:', e.message); });
+  }
+
+  // ============================================================
+  // ИНИЦИАЛИЗАЦИЯ ПРИ СТАРТЕ
+  // ============================================================
   function ensureSeed() {
-    // Сначала проверяем сервер
     return checkServer().then(function(online) {
       if (online) {
-        // Сервер доступен — синхронизируем данные
+        // Сервер доступен — загружаем данные
         return syncFromServer().then(function() {
+          // Заполняем сидами только то, чего нет (админ, базовые работы)
           return Promise.all([
             window.SP_USERS_DB.ensureSeed(),
             window.SP_WORK.ensureSeed(),
             window.SP_OBJECTS.ensureSeed(),
             window.SP_TASKS.ensureSeed()
           ]);
+        }).then(function() {
+          // Отправляем сиды на сервер (если их там ещё нет)
+          sendSeedToServer();
         });
       } else {
-        // Сервер недоступен — работаем автономно (localStorage)
-        console.warn('Сервер недоступен, работа в автономном режиме');
+        // Автономный режим
         return Promise.all([
           window.SP_USERS_DB.ensureSeed(),
           window.SP_WORK.ensureSeed(),
@@ -118,7 +233,21 @@ window.SP_DB = (function () {
     });
   }
 
-  // === СЕССИЯ ===
+  // Отправка начальных данных на сервер (для первого запуска)
+  function sendSeedToServer() {
+    if (!API) return;
+    // Проверяем есть ли админ на сервере, если нет — отправляем
+    apiGet(EP.users).then(function(data) {
+      if (data && data.users && data.users.length === 0) {
+        console.log('🌱 Отправка начальных данных на сервер...');
+        apiPost(EP.seed, {}).catch(function() {});
+      }
+    }).catch(function() {});
+  }
+
+  // ============================================================
+  // СЕССИЯ
+  // ============================================================
   function getSession() {
     try {
       var id = localStorage.getItem(SESS_KEY);
@@ -129,27 +258,9 @@ window.SP_DB = (function () {
   function setSession(id) { try { localStorage.setItem(SESS_KEY, id); } catch (e) {} }
   function clearSession() { try { localStorage.removeItem(SESS_KEY); } catch (e) {} }
 
-  // === СИНХРОНИЗАЦИЯ ОПЕРАЦИЙ С СЕРВЕРОМ ===
-
-  // Пользователи
-  function syncUserToServer(user, mode) {
-    if (mode === 'delete') return deleteJSON(EP.users + '/' + user.id);
-    return postJSON(EP.users, user);
-  }
-
-  // Виды работ
-  function syncWorkToServer(area, work, mode) {
-    if (mode === 'delete') return deleteJSON(EP.works + '/' + area + '/' + work.id);
-    return postJSON(EP.works + '/' + area, work);
-  }
-
-  // Задания
-  function syncTaskToServer(task, mode) {
-    if (mode === 'delete') return deleteJSON(EP.tasks + '/' + task.id);
-    return postJSON(EP.tasks, task);
-  }
-
-  // === ЭКСПОРТ/ИМПОРТ ===
+  // ============================================================
+  // ЭКСПОРТ / ИМПОРТ
+  // ============================================================
   function exportAll() {
     return {
       version: '2.0', timestamp: Date.now(),
@@ -172,28 +283,26 @@ window.SP_DB = (function () {
   function importUsersJSON(text, mode) {
     return new Promise(function (resolve, reject) {
       var parsed;
-      try { parsed = JSON.parse(text); }
-      catch (e) { reject(new Error('Файл повреждён или не является JSON')); return; }
-
+      try { parsed = JSON.parse(text); } catch (e) { reject(new Error('Файл повреждён')); return; }
       var incoming;
       if (Array.isArray(parsed)) incoming = parsed;
       else if (parsed && Array.isArray(parsed.users)) incoming = parsed.users;
-      else { reject(new Error('Неверный формат файла')); return; }
+      else { reject(new Error('Неверный формат')); return; }
 
-      // Отправка на сервер если доступен
-      if (serverOnline) {
-        postJSON(EP.users + '/bulk', { users: incoming, mode: mode }).then(function() {
-          return syncFromServer();
-        }).then(function() { resolve({ mode: mode, added: incoming.length }); });
+      // Отправка на сервер
+      if (serverOnline && API) {
+        apiPost(EP.users + '/bulk', { users: incoming, mode: mode })
+          .then(function() { return syncFromServer(); })
+          .then(function() { resolve({ mode: mode, added: incoming.length }); })
+          .catch(function() {});
       }
 
-      // Локальная обработка
       var KEY = 'smartplan_users_db';
       var added = 0;
       if (mode === 'replace') {
         var newDb = { schema: 3, users: incoming };
         try { localStorage.setItem(KEY, JSON.stringify(newDb)); } catch (e) {}
-        if (window.SP_USERS_DB && window.SP_USERS_DB.reloadFromCloud) window.SP_USERS_DB.reloadFromCloud(newDb);
+        if (window.SP_USERS_DB) window.SP_USERS_DB.reloadFromCloud(newDb);
         added = incoming.length;
       } else {
         var existing = window.SP_USERS_DB.getUsers();
@@ -207,7 +316,7 @@ window.SP_DB = (function () {
         });
         var mergedDb = { schema: 3, users: existing };
         try { localStorage.setItem(KEY, JSON.stringify(mergedDb)); } catch (e) {}
-        if (window.SP_USERS_DB && window.SP_USERS_DB.reloadFromCloud) window.SP_USERS_DB.reloadFromCloud(mergedDb);
+        if (window.SP_USERS_DB) window.SP_USERS_DB.reloadFromCloud(mergedDb);
       }
       resolve({ mode: mode, added: added });
     });
@@ -222,7 +331,9 @@ window.SP_DB = (function () {
     } catch (e) { return Promise.reject(e); }
   }
 
-  // === API ===
+  // ============================================================
+  // ПУБЛИЧНЫЙ API
+  // ============================================================
   return {
     ensureSeed: ensureSeed,
     getSession: getSession, setSession: setSession, clearSession: clearSession,
@@ -230,7 +341,7 @@ window.SP_DB = (function () {
     syncFromServer: syncFromServer, checkServer: checkServer,
     isServerOnline: function() { return serverOnline; },
 
-    // Проброс методов пользователей
+    // Пользователи — проброс + синхронизация
     getUsers: function() { return window.SP_USERS_DB.getUsers(); },
     getUser: function(id) { return window.SP_USERS_DB.getUser(id); },
     getUserByLogin: function(l) { return window.SP_USERS_DB.getUserByLogin(l); },
@@ -252,37 +363,43 @@ window.SP_DB = (function () {
 
     addUser: function(d) {
       var op = window.SP_USERS_DB.addUser(d);
-      op.then(function(u) { syncUserToServer(u); });
+      op.then(function(u) { sendUser(u); }).catch(function() {});
       return op;
     },
     updateUser: function(id, d) {
       var op = window.SP_USERS_DB.updateUser(id, d);
-      op.then(function(u) { syncUserToServer(Object.assign({id: id}, d)); });
+      op.then(function(u) { sendUser(Object.assign({ id: id }, d, u)); }).catch(function() {});
       return op;
     },
     deleteUser: function(id) {
-      syncUserToServer({id: id}, 'delete');
+      sendUserDelete(id);
       return window.SP_USERS_DB.deleteUser(id);
     },
+
     authenticate: function(l, p) {
-      // Пробуем серверную аутентификацию
-      if (serverOnline) {
-        return fetch(API + EP.auth, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ login: l, password: p })
-        }).then(function(r) { return r.json(); }).then(function(data) {
-          if (data && data.user) return data.user;
-          return window.SP_USERS_DB.authenticate(l, p);
-        }).catch(function() {
-          return window.SP_USERS_DB.authenticate(l, p);
-        });
+      // Серверная аутентификация
+      if (serverOnline && API) {
+        return apiPost(EP.auth, { login: l, password: p })
+          .then(function(data) {
+            if (data && data.user) return data.user;
+            return window.SP_USERS_DB.authenticate(l, p);
+          })
+          .catch(function() {
+            return window.SP_USERS_DB.authenticate(l, p);
+          });
       }
       return window.SP_USERS_DB.authenticate(l, p);
     },
 
     // Синхронизация работ и заданий
-    syncWork: syncWorkToServer,
-    syncTask: syncTaskToServer,
+    syncWork: function(area, work, mode) {
+      if (mode === 'delete') sendWorkDelete(area, work.id);
+      else sendWork(area, work);
+    },
+    syncTask: function(task, mode) {
+      if (mode === 'delete') sendTaskDelete(task.id);
+      else sendTask(task);
+    },
+    syncObject: function(obj) { sendObject(obj); },
   };
 })();
