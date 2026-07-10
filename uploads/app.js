@@ -2826,7 +2826,8 @@
         var ah = '';
         // Объём работ
         var volLabel = firstWork.unit === 'м2' ? 'Площадь, м²' : firstWork.unit === 'км' ? 'Протяжённость, км' : firstWork.unit === 'га' ? 'Площадь, га' : 'Количество, ' + firstWork.unit;
-        var initVol = (isEdit && t && t.volume) ? t.volume : (firstWork.unit === 'объект' ? 1 : 100);
+        var currentVolInput = document.getElementById('f-vol');
+        var initVol = currentVolInput ? (parseFloat(currentVolInput.value) || 1) : ((isEdit && t && t.volume) ? t.volume : 1);
         ah += '<div class="fld" id="f-vol-fld"><label>' + volLabel + '</label><div class="vol-input"><input id="f-vol" type="number" step="0.01" min="0.01" value="' + initVol + '" placeholder="Объём"><span class="vol-unit">' + firstWork.unit + '</span></div></div>';
 
         // Метки атрибутов
