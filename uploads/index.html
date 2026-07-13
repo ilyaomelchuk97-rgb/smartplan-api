@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8" http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SmartPlan — Планирование · УП «МИНГАЗ»</title>
 <style>
@@ -383,6 +383,27 @@
   .nav::-webkit-scrollbar-thumb,.cal-scroll::-webkit-scrollbar-thumb,.mlist::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px;transition:background .2s}
   .nav::-webkit-scrollbar-thumb:hover,.cal-scroll::-webkit-scrollbar-thumb:hover,.mlist::-webkit-scrollbar-thumb:hover{background:#94a3b8}
 
+  /* ---------- TOUCH / ПЛАНШЕТЫ ---------- */
+  /* touch-action: none чтобы браузер не перехватывал жест при перетаскивании */
+  .tile[draggable="true"], .mtask[draggable="true"] { touch-action: none }
+  /* Ghost-клон при touch-перетаскивании */
+  .tile.touch-dragging, .mtask.touch-dragging { box-shadow: 0 8px 24px rgba(37,99,235,.4)!important }
+  /* Увеличенная зона касания для чекбоксов на мобильных */
+  @media (pointer: coarse) {
+    .tile-chk { width: 22px; height: 22px }
+    .tile-chk-box { width: 20px; height: 20px }
+    .seg button { padding: 8px 16px; font-size: 13px }
+    .btn.sm { padding: 7px 12px; font-size: 13px }
+    .tile { padding: 5px 7px; font-size: 11px }
+    .tile .tw { font-size: 11px }
+    .tile .th { font-size: 10px }
+    .col-head { min-width: 60px }
+    .cell { min-height: 55px }
+    .mname { min-width: 140px }
+    .cal-grid { min-width: 600px }
+    .mtask { padding: 12px 11px }
+  }
+
   /* Уважение к настройке «уменьшить анимацию» */
   @media (prefers-reduced-motion:reduce){
     *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
@@ -395,6 +416,94 @@
   .chip.teal{background:#ccfbf1;color:#0f766e}
   .fld label.cb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);font-weight:600;cursor:pointer}
   .fld label.cb input{width:auto;margin:0}
+
+  /* ---------- AI ЧАТ ---------- */
+  #ai-chat-toggle{position:fixed;bottom:20px;right:20px;z-index:99998;display:flex;align-items:center;gap:8px;padding:12px 18px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border:none;border-radius:30px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(37,99,235,.4);transition:.3s;font-family:inherit;animation:fadeInUp .4s ease}
+  #ai-chat-toggle:hover{transform:translateY(-2px);box-shadow:0 6px 25px rgba(37,99,235,.5)}
+  #ai-chat-toggle svg{width:22px;height:22px}
+  #ai-chat-window{position:fixed;bottom:75px;right:20px;width:380px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 120px);background:#fff;border-radius:16px;box-shadow:0 12px 50px rgba(0,0,0,.2);z-index:99999;display:none;flex-direction:column;overflow:hidden;animation:scaleIn .3s ease}
+  #ai-chat-window.open{display:flex}
+  .ai-chat-h{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#0f2740,#1d4ed8);color:#fff}
+  .ai-chat-h .av-ai{width:36px;height:36px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none}
+  .ai-chat-h .title-ai{font-size:15px;font-weight:700}
+  .ai-chat-h .sub-ai{font-size:11px;color:#93c5fd}
+  .ai-chat-h .close-ai{margin-left:auto;background:none;border:none;color:#fff;font-size:22px;cursor:pointer;padding:0 4px;opacity:.8}
+  .ai-chat-h .close-ai:hover{opacity:1}
+  .ai-chat-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;background:#f8fafc}
+  .ai-msg{max-width:85%;padding:10px 14px;border-radius:12px;font-size:13.5px;line-height:1.5}
+  .ai-msg.user{background:#2563eb;color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+  .ai-msg.bot{background:#fff;border:1px solid var(--line);color:var(--ink);align-self:flex-start;border-bottom-left-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  .ai-msg.bot b{color:var(--blue)}
+  .ai-typing{align-self:flex-start;display:flex;gap:4px;padding:12px 16px;background:#fff;border:1px solid var(--line);border-radius:12px;border-bottom-left-radius:4px}
+  .ai-typing span{width:8px;height:8px;border-radius:50%;background:#94a3b8;animation:aiBlink 1.4s infinite both}
+  .ai-typing span:nth-child(2){animation-delay:.2s}
+  .ai-typing span:nth-child(3){animation-delay:.4s}
+  @keyframes aiBlink{0%,80%,100%{opacity:.3}40%{opacity:1}}
+  .ai-chat-f{padding:12px 14px;border-top:1px solid var(--line);background:#fff;display:flex;gap:8px}
+  .ai-chat-f input{flex:1;padding:10px 14px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;font-family:inherit;outline:none;color:var(--ink)}
+  .ai-chat-f input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+  .ai-chat-f button{padding:0 16px;background:#2563eb;border:none;border-radius:10px;color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s}
+  .ai-chat-f button:hover{background:#1d4ed8}
+  .ai-chat-f button:disabled{opacity:.5;cursor:default}
+  .ai-placeholder{color:#94a3b8;font-style:italic;text-align:center;padding:30px 20px;font-size:14px}
+
+  /* ---------- ПОПАП-КАЛЕНДАРЬ ---------- */
+  #date-popup{position:fixed;z-index:250;background:#fff;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.2);border:1px solid var(--line);padding:16px;width:320px;display:none}
+  #date-popup.open{display:block;animation:scaleIn .2s ease}
+  #date-popup .dp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  #date-popup .dp-title{font-size:14px;font-weight:700;color:var(--ink)}
+  #date-popup .dp-nav{display:flex;gap:4px}
+  #date-popup .dp-nav button{width:30px;height:30px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer;font-size:14px;color:var(--ink);display:flex;align-items:center;justify-content:center;transition:.15s}
+  #date-popup .dp-nav button:hover{background:var(--blue);color:#fff;border-color:var(--blue)}
+  #date-popup .dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+  #date-popup .dp-wd{text-align:center;font-size:11px;color:var(--muted);font-weight:700;padding:4px 0}
+  #date-popup .dp-day{text-align:center;padding:8px 0;font-size:13px;color:var(--ink);cursor:pointer;border-radius:6px;transition:.12s;border:none;background:none;font-family:inherit}
+  #date-popup .dp-day:hover{background:#dbeafe;color:var(--blue)}
+  #date-popup .dp-day.today{font-weight:800;color:var(--blue)}
+  #date-popup .dp-day.selected{background:var(--blue);color:#fff;font-weight:700}
+  #date-popup .dp-day.other-month{color:#cbd5e1}
+  #date-popup .dp-actions{display:flex;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+  #date-popup .dp-actions button{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink);transition:.15s;font-family:inherit}
+  #date-popup .dp-actions button:hover{background:#f8fafc}
+  #date-popup .dp-actions button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  #date-popup .dp-actions button.primary:hover{background:var(--blue-d)}
+  #date-popup .dp-overlay{position:fixed;inset:0;z-index:-1}
+
+  /* ---------- ПОПАП ПОГОДЫ (выпадающий список) ---------- */
+  .weather-dropdown{display:none;margin-top:8px;background:linear-gradient(160deg,#1e3a5f,#0f2740);color:#fff;border-radius:14px;padding:16px;box-shadow:0 12px 30px rgba(0,0,0,.2);overflow:hidden;max-height:0;opacity:0;transition:max-height .4s ease,opacity .3s ease,padding .3s ease;padding-top:0;padding-bottom:0}
+  .weather-dropdown.open{display:block;max-height:300px;opacity:1;padding-top:16px;padding-bottom:16px;animation:wpFadeIn .4s ease}
+  @keyframes wpFadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+  .weather-dropdown .wd-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .weather-dropdown .wd-title{font-size:14px;font-weight:700}
+  .weather-dropdown .wd-sub{font-size:11px;color:#93c5fd}
+  .weather-dropdown .wd-close{background:rgba(255,255,255,.15);border:none;color:#fff;font-size:16px;width:28px;height:28px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .weather-dropdown .wd-close:hover{background:rgba(255,255,255,.3)}
+  .weather-dropdown .wd-grid{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px}
+  .weather-dropdown .wd-day{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 10px;text-align:center;min-width:95px;transition:.3s;animation:wpDayIn .4s ease backwards;cursor:pointer;display:flex;flex-direction:column;align-items:center}
+  @keyframes wpDayIn{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
+  .weather-dropdown .wd-day:hover{background:rgba(255,255,255,.15);transform:translateY(-3px)}
+  .weather-dropdown .wd-day.today{background:linear-gradient(135deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.5)}
+  .weather-dropdown .wd-dow{font-size:10px;text-transform:uppercase;color:#93c5fd;font-weight:700}
+  .weather-dropdown .wd-date{font-size:13px;font-weight:800;margin:2px 0 6px}
+  .weather-dropdown .wd-icon{font-size:24px;margin-bottom:4px}
+  .weather-dropdown .wd-temp{font-size:15px;font-weight:800}
+  .weather-dropdown .wd-desc{font-size:9px;color:#cbd5e1;margin-top:2px;height:24px;display:flex;align-items:center;justify-content:center}
+
+  /* ---------- ВЫПАДАЮЩИЙ КАЛЕНДАРЬ ВЫБОРА МЕСЯЦА (отчёты) ---------- */
+  .report-month-dropdown{display:none;position:fixed;top:0;left:0;z-index:9999;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.25);padding:14px;width:300px}
+  .report-month-dropdown.open{display:block;animation:scaleIn .2s ease}
+  .report-month-dropdown .rm-head{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;position:relative}
+  .report-month-dropdown .rm-head button{width:32px;height:32px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer;font-size:16px;color:var(--ink);display:flex;align-items:center;justify-content:center;transition:.15s;font-family:inherit}
+  .report-month-dropdown .rm-head button:hover{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .report-month-dropdown .rm-year{font-size:16px;font-weight:800;color:var(--ink);min-width:60px;text-align:center}
+  .report-month-dropdown .rm-close{position:absolute;right:0;top:0;width:26px!important;height:26px!important;font-size:16px!important;border:none!important;background:transparent!important;color:var(--muted)!important}
+  .report-month-dropdown .rm-close:hover{color:var(--red)!important;background:transparent!important}
+  .report-month-dropdown .rm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .report-month-dropdown .rm-month{padding:11px 4px;border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink);transition:.15s;font-family:inherit;text-align:center}
+  .report-month-dropdown .rm-month:hover{background:#dbeafe;border-color:var(--blue);color:var(--blue)}
+  .report-month-dropdown .rm-month.selected{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700}
+  .report-month-dropdown .rm-month.current{border-color:var(--green)}
+  .report-month-dropdown .rm-month.current.selected{background:var(--blue);border-color:var(--blue)}
 
   /* ---------- УБиРОГС: МЕТКИ И ФИЛЬТРЫ ---------- */
   .weather-warn{background:#fef3c7;border:1px solid #facc15;color:#92400e;border-radius:8px;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:10px}
@@ -415,7 +524,7 @@
   .tile.t-weather{background:#fef3c7!important;border-left-color:#facc15!important}
   .tile.t-weather .tw{color:#92400e!important}
   .ov-weather{position:absolute;top:2px;right:3px;font-size:9px;font-weight:800;color:#fff;background:#f59e0b;border-radius:5px;padding:0 4px}
-  .ov-permit{position:absolute;top:2px;right:3px;font-size:9px;font-weight:800;color:#fff;background:#dc2626;border-radius:5px;padding:0 4px}
+  .tile-permit{display:block;font-size:9px;color:#b91c1c;font-weight:700;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
@@ -467,15 +576,15 @@
     </div>
     <nav class="nav" id="nav">
       <div class="grp">Оперативная работа</div>
-      <a data-screen="dashboard" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Дашборд <span class="badge" id="rz-badge">0</span></a>
+      <a data-screen="dashboard" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Панель мониторинга <span class="badge" id="rz-badge">0</span></a>
       <a data-screen="calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>Планирование / Календарь</a>
       <a data-screen="map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-6-3V4l6 3 6-3 6 3v13l-6-3-6 3z"/><path d="M9 7v13M15 4v13"/></svg>Карта маршрутов</a>
       <a data-screen="gmap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Интерактивная карта</a>
       <a data-screen="perms"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V7l-9-5z"/><path d="M9 12l2 2 4-4"/></svg>Разрешения</a>
+      <a data-screen="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Отчёты</a>
+      <a data-screen="refs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20V3H6.5A2.5 2.5 0 004 5.5z"/><path d="M4 19.5V21h12"/></svg>Справочники</a>
       <div class="grp">Администрирование</div>
       <a data-screen="users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Пользователи</a>
-      <a data-screen="refs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20V3H6.5A2.5 2.5 0 004 5.5z"/><path d="M4 19.5V21h12"/></svg>Справочники</a>
-      <a data-screen="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Отчёты (PDF)</a>
     </nav>
     <div class="sb-foot">УП «МИНГАЗ» · v0.9 прототип<br>© 2026 SmartPlan</div>
   </aside>
@@ -501,6 +610,7 @@
 
 <div id="tip"></div>
 <div id="toasts"></div>
+<div id="report-month-dropdown" class="report-month-dropdown"></div>
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -512,6 +622,46 @@
 <script src="objects_db.js"></script>
 <script src="tasks_db.js"></script>
 <script src="db.js"></script>
+<!-- Попап-календарь -->
+<div id="date-popup">
+  <div class="dp-head">
+    <div class="dp-title" id="dp-month-year"></div>
+    <div class="dp-nav">
+      <button id="dp-prev" title="Назад">‹</button>
+      <button id="dp-today" title="Сегодня">●</button>
+      <button id="dp-next" title="Вперёд">›</button>
+    </div>
+  </div>
+  <div class="dp-grid" id="dp-grid"></div>
+  <div class="dp-actions">
+    <button id="dp-cancel">Закрыть</button>
+    <button class="primary" id="dp-apply">Выбрать</button>
+  </div>
+</div>
+
+<!-- AI ЧАТ -->
+<button id="ai-chat-toggle" title="AI помощник">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+  AI чат
+</button>
+<div id="ai-chat-window">
+  <div class="ai-chat-h">
+    <div class="av-ai">🤖</div>
+    <div>
+      <div class="title-ai">AI помощник</div>
+      <div class="sub-ai">Умный ассистент SmartPlan</div>
+    </div>
+    <button class="close-ai" id="ai-chat-close">×</button>
+  </div>
+  <div class="ai-chat-body" id="ai-chat-body">
+    <div class="ai-placeholder">Задавайте свои вопросы</div>
+  </div>
+  <div class="ai-chat-f">
+    <input type="text" id="ai-chat-input" placeholder="Напишите сообщение..." autocomplete="off">
+    <button id="ai-chat-send">➤</button>
+  </div>
+</div>
+
 <script src="app.js"></script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1a7e9500906512f',t:'MTc4Mzk0MTc2Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
