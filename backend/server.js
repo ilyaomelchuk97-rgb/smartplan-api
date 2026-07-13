@@ -157,7 +157,6 @@ app.post('/api/auth', async (req, res) => {
     // Проверка: пароль admin123, логин, plain_password или хэш
     const ok =
       password === 'admin123' ||
-      password === u.login ||
       password === u.plain_password ||
       bcrypt.compareSync(password, u.password);
 
@@ -368,10 +367,55 @@ app.put('/api/tasks/:id', async (req, res) => {
   }
 });
 
+// === КОРЗИНА: мягкое удаление (без физического удаления) ===
 app.delete('/api/tasks/:id', async (req, res) => {
   try {
-    await query('DELETE FROM tasks WHERE id=$1', [req.params.id]);
+    // Помечаем как удалённую, не удаляем физически
+    await query("UPDATE tasks SET status='deleted', s='deleted' WHERE id=$1", [req.params.id]);
+    // Если задачи нет в таблице — добавляем как удалённую
+    const exists = await query("SELECT id FROM tasks WHERE id=$1", [req.params.id]);
+    if (!exists.rows.length) {
+      await query(
+        `INSERT INTO tasks (id, addr, m, d, dl, s, status, volume, created)
+         VALUES ($1, '(удалено)', 'deleted', 0, 0, 'deleted', 'deleted', 1, $2)`,
+        [req.params.id, Date.now()]
+      );
+    }
     res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === КОРЗИНА: список удалённых задач ===
+app.get('/api/trash', async (req, res) => {
+  try {
+    const result = await query("SELECT * FROM tasks WHERE status='deleted' OR s='deleted' ORDER BY created DESC");
+    res.json({ tasks: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === КОРЗИНА: восстановление задачи ===
+app.put('/api/trash/restore/:id', async (req, res) => {
+  try {
+    const t = req.body || {};
+    await query(
+      `UPDATE tasks SET status=$1, s=$2, addr=$3, m=$4, d=$5, dl=$6, volume=$7 WHERE id=$8`,
+      [t.status || 'plan', t.s || 'plan', t.addr || '', t.m || '', t.d || 0, t.dl || 7, t.volume || 1, req.params.id]
+    );
+    res.json({ restored: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === КОРЗИНА: физическое удаление (очистка) ===
+app.delete('/api/trash/:id', async (req, res) => {
+  try {
+    await query("DELETE FROM tasks WHERE id=$1 AND (status='deleted' OR s='deleted')", [req.params.id]);
+    res.json({ purged: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
