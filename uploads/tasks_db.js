@@ -81,11 +81,17 @@ window.SP_TASKS = (function () {
       }).catch(function() {});
     }
   }
+
+  function hardDeleteTask(id) {
+    var db = init();
+    db.tasks = db.tasks.filter(function (t) { return t.id !== id; });
+    save(db);
+  }
   function resetSeed() { localStorage.removeItem(KEY); memoryDB = null; return ensureSeed(); }
 
   return {
     ensureSeed: ensureSeed, getTasks: getTasks, getTask: getTask,
-    addTask: addTask, updateTask: updateTask, deleteTask: deleteTask,
+    addTask: addTask, updateTask: updateTask, deleteTask: deleteTask, hardDeleteTask: hardDeleteTask,
     resetSeed: resetSeed, reloadFromCloud: reloadFromCloud, TASK_SEED: TASK_SEED
   };
 })();
