@@ -671,6 +671,31 @@
     var clickAttr = action ? ' data-action="' + action + '" style="cursor:pointer"' : '';
     return '<div class="kpi"' + clickAttr + '><div class="acc" style="background:' + color + '"></div><div class="lab">' + lab + '</div><div class="val">' + val + '</div><div class="hint">' + hint + '</div></div>';
   }
+
+  // Мягкое обновление KPI на дашборде — только числа, без перестройки DOM
+  function softUpdateDashboard() {
+    var vt = visibleTasks();
+    var mastersToday = visibleMasters();
+    var today = vt.filter(function (t) { return t.d === 0; });
+    var overloads = mastersToday.filter(function (m) { return loadForDay(m.id, 0) > CAP; }).length;
+    var permitCount = vt.filter(function(t) { return t.needs_permit && !isDone(t); }).length;
+
+    // Обновляем только значения внутри существующих KPI карточек
+    var kpiEls = document.querySelectorAll('.kpi .val');
+    if (kpiEls.length >= 4) {
+      if (kpiEls[0]) kpiEls[0].textContent = today.length;
+      if (kpiEls[1]) kpiEls[1].textContent = overloads;
+      // KPI 3 — процент выполнения
+      var doneMonth = 0, totalMonth = 0;
+      vt.forEach(function (t) {
+        var d = offToDate(t.d);
+        if (d.getMonth() === TODAY.getMonth() && d.getFullYear() === TODAY.getFullYear()) { totalMonth++; if (isDone(t)) doneMonth++; }
+      });
+      var pct = totalMonth ? Math.round(doneMonth / totalMonth * 100) : 0;
+      if (kpiEls[2]) kpiEls[2].textContent = pct + '%';
+      if (kpiEls[3]) kpiEls[3].textContent = permitCount;
+    }
+  }
   function ringHTML(pct, size, stroke, small) {
     var r = (size - stroke) / 2, c = 2 * Math.PI * r, off = c * (1 - pct / 100);
     var col = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--yellow)' : 'var(--red)';
@@ -807,7 +832,7 @@
   }
 
   /* =====================================================================
-     КОРЗИНА (история удалённых задач за 2 недели)
+     КОРЗИНА (синхронизированная через сервер)
      ===================================================================== */
   var TRASH_KEY = 'smartplan_trash';
 
@@ -820,6 +845,25 @@
     try { localStorage.setItem(TRASH_KEY, JSON.stringify(arr)); } catch (e) {}
   }
 
+  // Загрузка корзины с сервера
+  function loadTrashFromServer() {
+    var API = (window.SP_CONFIG && SP_CONFIG.serverUrl) || '';
+    if (!API || !DB.isServerOnline()) return Promise.resolve(getTrash());
+    return fetch(API + '/api/trash')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data && data.tasks) {
+          var trash = data.tasks.map(function(t) {
+            return Object.assign({}, t, { _deletedAt: t.created || Date.now() });
+          });
+          saveTrash(trash);
+          return trash;
+        }
+        return getTrash();
+      })
+      .catch(function() { return getTrash(); });
+  }
+
   function addToTrash(task) {
     var trash = getTrash();
     task._deletedAt = Date.now();
@@ -828,6 +872,11 @@
     var cutoff = Date.now() - 14 * 86400000;
     trash = trash.filter(function(t) { return t._deletedAt > cutoff; });
     saveTrash(trash);
+    // Отправляем на сервер — мягкое удаление
+    var API = (window.SP_CONFIG && SP_CONFIG.serverUrl) || '';
+    if (API && DB.isServerOnline()) {
+      fetch(API + '/api/tasks/' + task.id, { method: 'DELETE' }).catch(function() {});
+    }
   }
 
   function restoreFromTrash(trashIdx) {
@@ -835,57 +884,62 @@
     if (trashIdx < 0 || trashIdx >= trash.length) return;
     var task = trash[trashIdx];
     delete task._deletedAt;
+    task.s = 'plan'; task.status = 'plan';
     if (TASKS_DB) { TASKS_DB.addTask(task); S.tasks = TASKS_DB.getTasks(); }
     else { S.tasks.push(task); }
     trash.splice(trashIdx, 1);
     saveTrash(trash);
     drawCalendarGrid();
+    // Восстанавливаем на сервере
+    var API = (window.SP_CONFIG && SP_CONFIG.serverUrl) || '';
+    if (API && DB.isServerOnline()) {
+      fetch(API + '/api/trash/restore/' + task.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'plan', s: 'plan', addr: task.addr, m: task.m, d: task.d, dl: task.dl, volume: task.volume })
+      }).catch(function() {});
+    }
     toast('ok', '✅ Задача восстановлена из корзины');
   }
 
   function purgeTrash() {
+    var oldTrash = getTrash();
     saveTrash([]);
+    var API = (window.SP_CONFIG && SP_CONFIG.serverUrl) || '';
+    if (API && DB.isServerOnline()) {
+      oldTrash.forEach(function(t) {
+        if (t.id) fetch(API + '/api/trash/' + t.id, { method: 'DELETE' }).catch(function() {});
+      });
+    }
     toast('ok', '🗑 Корзина очищена');
   }
 
   function openTrashModal() {
-    var trash = getTrash();
-    // Сортируем — свежие удаления сверху
-    trash.sort(function(a, b) { return (b._deletedAt || 0) - (a._deletedAt || 0); });
-
-    var html = '<div class="modal-h"><h3>🗑 Корзина</h3><button class="x" data-action="close-modal">×</button></div>';
-    html += '<div class="modal-b">';
-
-    if (!trash.length) {
-      html += '<div class="empty" style="padding:40px 20px;">Корзина пуста<br><span style="font-size:12px;">Удалённые задачи хранятся 14 дней</span></div>';
-    } else {
-      html += '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Задач в корзине: ' + trash.length + ' · хранятся 14 дней</div>';
-      trash.forEach(function(t, idx) {
-        var w = WORK.getWork('УБиРОГС', t.w) || WORK_MAP[t.w];
-        var deletedDate = t._deletedAt ? new Date(t._deletedDate || t._deletedAt) : null;
-        var delStr = deletedDate ? deletedDate.getDate() + ' ' + MON[deletedDate.getMonth()] : '';
-        var daysAgo = t._deletedAt ? Math.floor((Date.now() - t._deletedAt) / 86400000) : 0;
-
-        html += '<div class="rz-item">';
-        html += '<div class="rz-bar" style="background:var(--muted);"></div>';
-        html += '<div class="rz-main">';
-        html += '<div class="rz-t">' + esc(w ? w.name : 'Задача') + ' — ' + esc(t.addr || addrOf(t)) + '</div>';
-        html += '<div class="rz-s">Удалено: ' + delStr + ' · ' + (daysAgo === 0 ? 'сегодня' : daysAgo + ' дн назад') + ' · Объём: ' + (t.volume || 1) + '</div>';
-        html += '</div>';
-        html += '<button class="btn sm" data-action="restore-task" data-trash-idx="' + idx + '" style="color:var(--green);white-space:nowrap;">↩ Восстановить</button>';
-        html += '</div>';
-      });
-
-      html += '<div style="margin-top:16px;text-align:right;">';
-      html += '<button class="btn sm" data-action="purge-trash" style="color:var(--red);">Очистить корзину полностью</button>';
-      html += '</div>';
-    }
-
-    html += '</div>';
-    html += '<div class="modal-f"><button class="btn" data-action="close-modal">Закрыть</button></div>';
-
-    modal.innerHTML = html;
+    // Показываем загрузку
+    modal.innerHTML = '<div class="modal-h"><h3>🗑 Корзина</h3><button class="x" data-action="close-modal">×</button></div><div class="modal-b"><div class="empty" style="padding:40px 20px;">Загрузка...</div></div>';
     overlay.classList.add('show');
+
+    // Загружаем актуальную корзину с сервера
+    loadTrashFromServer().then(function(trash) {
+      trash.sort(function(a, b) { return (b._deletedAt || 0) - (a._deletedAt || 0); });
+      var html = '<div class="modal-h"><h3>🗑 Корзина</h3><button class="x" data-action="close-modal">×</button></div>';
+      html += '<div class="modal-b">';
+      if (!trash.length) {
+        html += '<div class="empty" style="padding:40px 20px;">Корзина пуста<br><span style="font-size:12px;">Удалённые задачи хранятся 14 дней</span></div>';
+      } else {
+        html += '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Задач в корзине: ' + trash.length + ' · хранятся 14 дней · синхронизировано</div>';
+        trash.forEach(function(t, idx) {
+          var w = WORK.getWork('УБиРОГС', t.w) || WORK_MAP[t.w];
+          var deletedDate = t._deletedAt ? new Date(t._deletedAt) : null;
+          var delStr = deletedDate ? deletedDate.getDate() + ' ' + MON[deletedDate.getMonth()] : '';
+          var daysAgo = t._deletedAt ? Math.floor((Date.now() - t._deletedAt) / 86400000) : 0;
+          html += '<div class="rz-item"><div class="rz-bar" style="background:var(--muted);"></div><div class="rz-main"><div class="rz-t">' + esc(w ? w.name : 'Задача') + ' — ' + esc(t.addr || addrOf(t)) + '</div><div class="rz-s">Удалено: ' + delStr + ' · ' + (daysAgo === 0 ? 'сегодня' : daysAgo + ' дн назад') + ' · Объём: ' + (t.volume || 1) + '</div></div><button class="btn sm" data-action="restore-task" data-trash-idx="' + idx + '" style="color:var(--green);white-space:nowrap;">↩ Восстановить</button></div>';
+        });
+        html += '<div style="margin-top:16px;text-align:right;"><button class="btn sm" data-action="purge-trash" style="color:var(--red);">Очистить корзину полностью</button></div>';
+      }
+      html += '</div><div class="modal-f"><button class="btn" data-action="close-modal">Закрыть</button></div>';
+      modal.innerHTML = html;
+    });
   }
 
   /* =====================================================================
@@ -4315,12 +4369,20 @@
         var fu = DB.getUser(S.user.id);
         if (fu && fu.id === S.user.id) S.user = fu;
       }
-      // Перезагружаем только данные текущего экрана без полной перестройки
-      // Обновляем только счётчик в бейдже и KPI, не трогая DOM целиком
+      // Мягкое обновление данных текущего экрана без полной перерисовки
       var rzBadge = document.getElementById('rz-badge');
       if (rzBadge) {
         var redzone = visibleTasks().filter(function (t) { return !isDone(t) && (t.dl <= 2 || t.d < 0); });
         rzBadge.textContent = redzone.length;
+      }
+      // Дашборд: обновляем KPI числа без перерисовки всей страницы
+      if (S.screen === 'dashboard') {
+        softUpdateDashboard();
+      }
+      // Календарь: обновляем только сетку задач, не трогая шапку
+      if (S.screen === 'calendar') {
+        var grid = document.getElementById('cal-grid');
+        if (grid) drawCalendarGrid();
       }
       console.log('🔄 Данные обновлены мягко (без перерисовки)');
     };
@@ -4472,9 +4534,8 @@
     setInterval(loadWeatherForecast, 3600000);
     // Инициализация попапа погоды
     initWeatherPopup();
-    // Рандомная синхронизация с сервером каждые 10-30 секунд
+    // Фиксированная синхронизация каждые 10 секунд
     function scheduleNextSync() {
-      var delay = 10000 + Math.floor(Math.random() * 20000); // 10-30 сек
       setTimeout(function() {
         if (DB.isServerOnline()) {
           DB.syncFromServer();
@@ -4484,7 +4545,7 @@
           });
         }
         scheduleNextSync(); // следующая итерация
-      }, delay);
+      }, 10000); // ровно 10 секунд
     }
     scheduleNextSync();
   }).catch(function (err) {
