@@ -84,10 +84,29 @@ window.SP_DB = (function () {
     promises.push(
       apiGet(EP.users).then(function(data) {
         if (data && data.users && data.users.length >= 0) {
-          var dbData = { schema: 3, users: data.users };
+          // MERGE: не затираем локальных пользователей, а объединяем
+          var existingUsers = window.SP_USERS_DB ? window.SP_USERS_DB.getUsers() : [];
+          var haveIds = {}; existingUsers.forEach(function(u) { if (u.id) haveIds[u.id] = u; });
+          var haveLogins = {}; existingUsers.forEach(function(u) { if (u.login) haveLogins[u.login.toLowerCase()] = u; });
+          
+          data.users.forEach(function(u) {
+            if (u.id && haveIds[u.id]) {
+              // Обновляем существующего (сервер приоритетнее для общих полей)
+              Object.assign(haveIds[u.id], u);
+            } else if (u.login && haveLogins[u.login.toLowerCase()]) {
+              Object.assign(haveLogins[u.login.toLowerCase()], u);
+            } else {
+              // Новый пользователь с сервера
+              existingUsers.push(u);
+              haveIds[u.id] = u;
+              if (u.login) haveLogins[u.login.toLowerCase()] = u;
+            }
+          });
+          
+          var dbData = { schema: 3, users: existingUsers };
           try { localStorage.setItem('smartplan_users_db', JSON.stringify(dbData)); } catch(e) {}
           if (window.SP_USERS_DB) window.SP_USERS_DB.reloadFromCloud(dbData);
-          console.log('  👥 Пользователи: ' + data.users.length);
+          console.log('  👥 Пользователи: ' + existingUsers.length);
         }
       }).catch(function(e) { console.warn('  👥 Ошибка загрузки пользователей:', e.message); })
     );
@@ -116,7 +135,7 @@ window.SP_DB = (function () {
       }).catch(function(e) { console.warn('  📍 Ошибка загрузки объектов:', e.message); })
     );
 
-    // Задания
+    // Задания — MERGE вместо замены
     promises.push(
       apiGet(EP.tasks).then(function(data) {
         if (data && data.tasks) {
@@ -130,12 +149,21 @@ window.SP_DB = (function () {
 
     return Promise.all(promises).then(function() {
       console.log('✅ Синхронизация завершена');
-      // Перерисовка интерфейса
-      if (typeof window.reRenderCurrentScreen === 'function') {
-        setTimeout(window.reRenderCurrentScreen, 50);
-      }
+      // Синхронизация НИКОГДА не меняет сессию — только данные
+      try {
+        var newHash = JSON.stringify({
+          t: window.SP_TASKS ? window.SP_TASKS.getTasks() : [],
+          u: window.SP_USERS_DB ? window.SP_USERS_DB.getUsers() : []
+        }).length;
+        var changed = newHash !== lastSyncHash;
+        lastSyncHash = newHash;
+        if (changed && typeof window.onSyncUpdate === 'function') {
+          setTimeout(window.onSyncUpdate, 50);
+        }
+      } catch(e) {}
     });
   }
+  var lastSyncHash = 0;
 
   // ============================================================
   // ОТПРАВКА ИЗМЕНЕНИЙ НА СЕРВЕР (всегда пытается, без проверки serverOnline)
@@ -246,17 +274,22 @@ window.SP_DB = (function () {
   }
 
   // ============================================================
-  // СЕССИЯ
+  // СЕССИЯ — только при явном входе (ввод логина/пароля)
   // ============================================================
+  var LOGGED_KEY = 'smartplan_logged_in'; // '1' = пользователь сам ввёл пароль
+
   function getSession() {
     try {
+      // Проверяем флаг явного входа — без него сессия не восстанавливается
+      var loggedIn = localStorage.getItem(LOGGED_KEY);
+      if (loggedIn !== '1') return null;
       var id = localStorage.getItem(SESS_KEY);
       if (!id) return null;
       return window.SP_USERS_DB.getUser(id);
     } catch (e) { return null; }
   }
-  function setSession(id) { try { localStorage.setItem(SESS_KEY, id); } catch (e) {} }
-  function clearSession() { try { localStorage.removeItem(SESS_KEY); } catch (e) {} }
+  function setSession(id) { try { localStorage.setItem(SESS_KEY, id); localStorage.setItem(LOGGED_KEY, '1'); } catch (e) {} }
+  function clearSession() { try { localStorage.removeItem(SESS_KEY); localStorage.removeItem(LOGGED_KEY); } catch (e) {} }
 
   // ============================================================
   // ЭКСПОРТ / ИМПОРТ
