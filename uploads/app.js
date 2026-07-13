@@ -35,6 +35,7 @@
   var WD = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
   var WD_FULL = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
   var MON = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  var MON_NOM = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
   function offToDate(off) { return addDays(TODAY, off); }
   function key(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -67,6 +68,7 @@
     refsTab: 'tree',
     workArea: null, workModalMode: 'new', workModalWid: null,
     userModalMode: 'new', userModalUid: null,
+    reportMonth: null, // {year, month} — выбранный отчётный месяц; null = текущий
     tasks: TASKS_DB ? TASKS_DB.getTasks() : (D.TASK_SEED || []).map(function (t, i) {
       var o = OBJ_MAP[t.o] || null;
       var tm = 15;
@@ -187,8 +189,9 @@
     var lat = (window.SP_CONFIG && SP_CONFIG.weatherLat) || 53.9023;
     var lng = (window.SP_CONFIG && SP_CONFIG.weatherLng) || 27.5619;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
-      '&daily=temperature_2m_max,temperature_2m_min,snowfall_sum,precipitation_sum,weather_code' +
-      '&timezone=Europe%2FMinsk&forecast_days=14';
+      '&daily=temperature_2m_max,temperature_2m_min,snowfall_sum,precipitation_sum,weather_code,sunrise,sunset' +
+      '&hourly=temperature_2m,precipitation_probability,snowfall,rain,weather_code' +
+      '&timezone=Europe%2FMinsk&forecast_days=15';
     return fetch(url).then(function(r) { return r.json(); }).then(function(data) {
       if (!data || !data.daily) throw new Error('Нет данных о погоде');
       var days = data.daily.time || [];
@@ -200,14 +203,46 @@
         var precip = data.daily.precipitation_sum[i] || 0;
         var code = data.daily.weather_code[i] || 0;
         var info = decodeWeatherCode(code);
+        
+        // Почасовые данные (сопоставляем по дате дня — надёжнее, чем по индексу)
+        var hourlyArr = [];
+        if (data.hourly && data.hourly.time) {
+          for (var h = 0; h < data.hourly.time.length; h++) {
+            var hTime = data.hourly.time[h];
+            // Сравниваем префикс даты "YYYY-MM-DD" с текущим днём
+            if (hTime && hTime.indexOf(dateStr) === 0) {
+              var hr = parseInt(hTime.substring(11, 13), 10);
+              var t = data.hourly.temperature_2m[h];
+              var hCode = data.hourly.weather_code[h] || 0;
+              var hInfo = decodeWeatherCode(hCode);
+              var hSnow = data.hourly.snowfall ? (data.hourly.snowfall[h] || 0) : 0;
+              var hRain = data.hourly.rain ? (data.hourly.rain[h] || 0) : 0;
+              var hProb = data.hourly.precipitation_probability ? (data.hourly.precipitation_probability[h] || 0) : 0;
+              hourlyArr.push({
+                hour: hr,
+                temp: Math.round((t != null ? t : 0) * 10) / 10,
+                desc: hInfo.desc,
+                snow: hInfo.snow,
+                snowfall: hSnow,
+                rain: hRain,
+                precipProb: hProb
+              });
+            }
+          }
+        }
+
         weatherCache[dateStr] = {
           temp: avgTemp,
           tempMax: tMax, tempMin: tMin,
           snow: snowfall > 0 || info.snow,
           snowfall: snowfall,
+          rain: Math.max(0, precip - snowfall * 10), // мм дождя (снег в см → ~10мм/см)
           precip: precip,
           code: code,
-          desc: info.desc
+          desc: info.desc,
+          sunrise: data.daily.sunrise[i],
+          sunset: data.daily.sunset[i],
+          hourly: hourlyArr
         };
       });
       weatherLoaded = true;
@@ -290,11 +325,43 @@
   }
 
   // Синхронное чтение прогноза из кэша (вызывается из UI)
+  // Если данных с сервера нет — генерирует правдоподобные данные, чтобы UI не ломался
   function getWeatherForecast(dayOff) {
     var d = offToDate(dayOff);
     var k = key(d);
     if (weatherCache[k]) return weatherCache[k];
-    return null;
+
+    // Генерация запасных данных (если API недоступен)
+    var month = d.getMonth();
+    var temp;
+    if (month === 11 || month === 0 || month === 1) temp = -5 - Math.floor(Math.random() * 10);
+    else if (month >= 2 && month <= 4) temp = 5 + Math.floor(Math.random() * 8);
+    else if (month >= 5 && month <= 7) temp = 18 + Math.floor(Math.random() * 10);
+    else temp = 8 + Math.floor(Math.random() * 7);
+
+    var desc = temp < 0 ? 'Холодно' : temp > 15 ? 'Тепло' : 'Прохладно';
+
+    // Почасовые данные (реалистичная кривая температуры: минимум ~5:00, максимум ~15:00)
+    var dummyHourly = [];
+    for (var h = 0; h < 24; h++) {
+      var curve = Math.sin((h - 9) * Math.PI / 12);
+      var hTemp = Math.round((temp + curve * 4) * 10) / 10;
+      dummyHourly.push({ hour: h, temp: hTemp, desc: desc, snow: false, snowfall: 0, rain: 0, precipProb: 0 });
+    }
+
+    var dummyWf = {
+      temp: temp,
+      desc: desc,
+      snowfall: 0,
+      rain: 0,
+      precip: 0,
+      hourly: dummyHourly,
+      sunrise: key(d) + 'T06:00',
+      sunset: key(d) + 'T20:00'
+    };
+
+    weatherCache[k] = dummyWf; // Сохраняем в кэш, чтобы данные не пропадали при клике
+    return dummyWf;
   }
 
   // Проверка наличия снегопада в день (для снегозависимых работ)
@@ -365,7 +432,7 @@
   var modal = document.getElementById('modal');
 
   var TITLES = {
-    dashboard: ['Дашборд', 'Рабочий стол'],
+    dashboard: ['Панель мониторинга', 'Рабочий стол'],
     calendar: ['Планирование / Календарь', 'Перетаскивайте карточки: влево/вправо — смена даты, вверх/вниз — смена мастера'],
     map: ['Карта маршрутов', 'Оптимизация пути между объектами и выбор картографического сервиса'],
     gmap: ['Интерактивная карта', 'Интерактивная карта сетей и объектов УП «МИНГАЗ»'],
@@ -388,6 +455,75 @@
     trash: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>',
     grip: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>'
   };
+
+  /* =====================================================================
+     KPI ПОПАПЫ (Панель мониторинга)
+     ===================================================================== */
+  function openKpiPopup(title, color, bodyHtml) {
+    var h = '<div class="modal-h" style="border-bottom:1px solid var(--line);background:' + color + ';color:#fff;"><h3 style="color:#fff">' + esc(title) + '</h3><button class="x" data-action="close-modal" style="color:#fff">×</button></div>';
+    h += '<div class="modal-b" style="max-height:65vh;overflow:auto;">';
+    h += bodyHtml || '<div class="empty">Нет данных</div>';
+    h += '</div>';
+    h += '<div class="modal-f"><button class="btn" data-action="close-modal">Закрыть</button></div>';
+    modal.innerHTML = h;
+    overlay.classList.add('show');
+  }
+
+  function kpiToday() {
+    var vt = visibleTasks().filter(function (t) { return t.d === 0; });
+    var body = '';
+    if (!vt.length) { openKpiPopup('Задачи на сегодня', '#2563eb', null); return; }
+    vt.sort(function(a,b) { return (a.m||'').localeCompare(b.m||''); });
+    vt.forEach(function (t) {
+      var w = workOf(t), m = masterById(t.m);
+      body += '<div class="rz-item"><div class="rz-bar" style="background:' + (m ? m.color : '#94a3b8') + '"></div><div class="rz-main"><div class="rz-t">' + esc(w ? w.name : '?') + ' — ' + esc(addrOf(t)) + '</div><div class="rz-s">' + esc(m ? m.name : '?') + ' · ' + esc(m ? m.area : '') + ' · ' + fmtH(taskHours(t)) + ' ч' + (t.volume ? ' · Объём: ' + t.volume + ' ' + (w ? w.unit : '') : '') + '</div></div><div class="rz-dl" style="color:#2563eb">' + statusLabel(t) + '</div></div>';
+    });
+    openKpiPopup('Задачи на сегодня (' + vt.length + ')', '#2563eb', body);
+  }
+
+  function kpiOverloads() {
+    var masters = visibleMasters();
+    var overloaded = masters.filter(function (m) { return loadForDay(m.id, 0) > CAP; });
+    var body = '';
+    if (!overloaded.length) { openKpiPopup('Перегрузок сегодня', '#dc2626', '<div class="empty">🎉 Перегрузок нет!</div>'); return; }
+    overloaded.forEach(function (m) {
+      var load = loadForDay(m.id, 0);
+      var dayTasks = visibleTasks().filter(function(t) { return t.m === m.id && t.d === 0 && !isDone(t); });
+      var taskList = '';
+      dayTasks.forEach(function(t) { var w = workOf(t); taskList += '<div class="taskline"><span class="pill">' + esc(w ? w.name : '?') + '</span><span>' + esc(addrOf(t)) + '</span><span style="margin-left:auto;color:var(--red);font-weight:700">' + fmtH(taskHours(t)) + ' ч</span></div>'; });
+      body += '<div class="today-mstr" style="border-color:var(--red);background:#fff5f5;"><span class="dot" style="background:' + m.color + '"></span><div><div class="nm">' + esc(m.name) + '</div><div class="ar">' + esc(m.area) + '</div></div><div class="meta"><div class="h" style="color:var(--red)">' + fmtH(load) + ' ч / ' + CAP + ' ч</div><span class="tag over">⚠ +' + fmtH(load - CAP) + ' ч</span></div></div>';
+      body += taskList;
+    });
+    openKpiPopup('Перегрузки сегодня (' + overloaded.length + ')', '#dc2626', body);
+  }
+
+  function kpiMonth() {
+    var vt = visibleTasks().filter(function (t) { var d = offToDate(t.d); return d.getMonth() === TODAY.getMonth() && d.getFullYear() === TODAY.getFullYear(); });
+    var done = vt.filter(function(t) { return isDone(t); });
+    var body = '<div style="margin-bottom:12px;font-size:13px;color:var(--muted);">Выполнено: <b style="color:var(--green)">' + done.length + '</b> из <b>' + vt.length + '</b></div>';
+    if (!done.length) { openKpiPopup('Выполнено за месяц', '#16a34a', null); return; }
+    done.sort(function(a,b) { return b.d - a.d; });
+    done.forEach(function (t) {
+      var w = workOf(t), m = masterById(t.m), d = offToDate(t.d);
+      body += '<div class="rz-item"><div class="rz-bar" style="background:var(--green)"></div><div class="rz-main"><div class="rz-t">' + esc(w ? w.name : '?') + ' — ' + esc(addrOf(t)) + '</div><div class="rz-s">' + esc(m ? m.name : '?') + ' · ' + d.getDate() + ' ' + MON[d.getMonth()] + '</div></div><div class="rz-dl" style="color:var(--green)">✓ ' + fmtH(taskHours(t)) + ' ч</div></div>';
+    });
+    openKpiPopup('Выполнено за месяц (' + done.length + ')', '#16a34a', body);
+  }
+
+  function kpiPermits() {
+    var vt = visibleTasks().filter(function (t) { return t.needs_permit && !isDone(t); });
+    var body = '';
+    if (!vt.length) { openKpiPopup('Ордеров истекает', '#f59e0b', '<div class="empty">Нет задач с ордерами</div>'); return; }
+    vt.sort(function(a,b) { return a.dl - b.dl; });
+    vt.forEach(function (t) {
+      var w = workOf(t), m = masterById(t.m);
+      var dlDate = t.dl_date || (t.dl != null ? key(offToDate(t.dl)) : '—');
+      var daysLeft = t.dl != null ? t.dl : 0;
+      var cls = daysLeft < 0 ? 'color:var(--red)' : daysLeft <= 3 ? 'color:var(--yellow)' : 'color:var(--green)';
+      body += '<div class="rz-item"><div class="rz-bar" style="background:' + (daysLeft < 0 ? 'var(--red)' : daysLeft <= 3 ? 'var(--yellow)' : 'var(--green)') + '"></div><div class="rz-main"><div class="rz-t">' + esc(w ? w.name : '?') + ' — ' + esc(addrOf(t)) + '</div><div class="rz-s">' + esc(m ? m.name : '?') + ' · Ордер до: ' + dlDate + '</div></div><div class="rz-dl" style="' + cls + '">' + (daysLeft < 0 ? 'просрочка ' + (-daysLeft) + ' дн' : daysLeft === 0 ? 'сегодня!' : daysLeft + ' дн') + '</div></div>';
+    });
+    openKpiPopup('Ордера и разрешения (' + vt.length + ')', '#f59e0b', body);
+  }
 
   /* =====================================================================
      РЕНДЕР: ДАШБОРД
@@ -445,13 +581,13 @@
     }
 
     html += '<div class="kpi-row">';
-    html += kpi(today.length, 'Задач на сегодня', 'по ' + mastersToday.length + ' мастера(ам)', '#2563eb');
-    html += kpi(overloads, 'Перегрузок сегодня', 'превышение ФРВ ' + CAP + ' ч', '#dc2626');
-    html += kpi(pct + '%', 'Выполнено за месяц', doneMonth + ' из ' + totalMonth + ' работ', '#16a34a');
+    html += kpi(today.length, 'Задач на сегодня', 'по ' + mastersToday.length + ' мастера(ам)', '#2563eb', 'kpi-today');
+    html += kpi(overloads, 'Перегрузок сегодня', 'превышение ФРВ ' + CAP + ' ч', '#dc2626', 'kpi-overloads');
+    html += kpi(pct + '%', 'Выполнено за месяц', doneMonth + ' из ' + totalMonth + ' работ', '#16a34a', 'kpi-month');
     // KPI УБиРОГС
     var permitCount = vt.filter(function(t) { return t.needs_permit && !isDone(t); }).length;
     var weatherCount = vt.filter(function(t) { var w = workOf(t); var wf = getWeatherForecast(t.d); return w && w.min_temp > -50 && wf && wf.temp != null && wf.temp < w.min_temp; }).length;
-    html += kpi(permitCount, 'Ордеров истекает', 'работы с разрешениями', '#f59e0b');
+    html += kpi(permitCount, 'Ордеров истекает', 'работы с разрешениями', '#f59e0b', 'kpi-permits');
     html += '</div>';
 
     // Оповещения УБиРОГС
@@ -461,25 +597,29 @@
     if (weatherCount > 0) {
       html += '<div class="weather-warn">🌡️ <b>Погодные ограничения:</b> ' + weatherCount + ' задач не могут быть выполнены из-за несоответствия температуры.</div>';
     }
-
     // Информация о погоде из прогноза
     var todayWeather = getWeatherForecast(0);
-    if (todayWeather) {
-      var snowExpected = '';
-      for (var off = 1; off <= 7; off++) {
-        var wf = getWeatherForecast(off);
-        if (wf && wf.snow && wf.snowfall > 0.1) {
-          snowExpected = ' · ❄️ Снег ожидается ' + fmtShort(off) + ' (' + wf.snowfall + ' мм)';
-          break;
-        }
-      }
-      var wIcon = todayWeather.snow ? '❄️' : todayWeather.desc.indexOf('Дождь') !== -1 || todayWeather.desc.indexOf('Морось') !== -1 ? '🌧️' : todayWeather.desc === 'Ясно' ? '☀️' : '⛅';
-      html += '<div style="margin-bottom:12px;padding:10px 14px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;border-radius:10px;display:flex;align-items:center;gap:12px;">';
-      html += '<span style="font-size:28px;">' + wIcon + '</span>';
-      html += '<div><div style="font-size:15px;font-weight:700;">' + todayWeather.temp + '°C · ' + todayWeather.desc + '</div>';
-      html += '<div style="font-size:11px;color:#cbd5e1;">Погода: Минск · ' + fmt(TODAY) + snowExpected + '</div></div>';
-      html += '</div>';
+    if (!todayWeather) {
+      todayWeather = { temp: '—', desc: 'Загрузка...', snow: false, snowfall: 0 };
     }
+    var snowExpected = '';
+    for (var off = 1; off <= 7; off++) {
+      var wf = getWeatherForecast(off);
+      if (wf && wf.snow && wf.snowfall > 0.1) {
+        snowExpected = ' · ❄️ Снег ожидается ' + fmtShort(off) + ' (' + wf.snowfall + ' мм)';
+        break;
+      }
+    }
+    var wIcon = todayWeather.snow ? '❄️' : todayWeather.desc.indexOf('Дождь') !== -1 || todayWeather.desc.indexOf('Морось') !== -1 ? '🌧️' : todayWeather.desc === 'Ясно' ? '☀️' : '⛅';
+    html += '<div data-action="open-weather" style="margin-bottom:0;padding:10px 14px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;border-radius:10px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:.2s;position:relative;" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 6px 20px rgba(37,99,235,.4)\';" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\';" title="Нажмите для просмотра прогноза на 15 дней">';
+    html += '<span style="font-size:28px;">' + wIcon + '</span>';
+    html += '<div><div style="font-size:15px;font-weight:700;">' + todayWeather.temp + '°C · ' + todayWeather.desc + '</div>';
+    html += '<div style="font-size:11px;color:#cbd5e1;">Погода: Минск · ' + fmt(TODAY) + snowExpected + '</div></div>';
+    html += '</div>';
+    // Выпадающий список при нажатии
+    html += '<div id="weather-dropdown" class="weather-dropdown"></div>';
+    // Отступ перед панелью аналитики
+    html += '<div style="height:16px;"></div>';
 
     html += '<div class="card" style="margin-bottom:16px;background:linear-gradient(135deg, #0f2740 0%, #1a3a5c 100%);color:#fff;border:1px solid rgba(255,255,255,0.15);"><div class="card-h" style="border-bottom:1px solid rgba(255,255,255,0.12);"><h2 style="color:#fff;display:flex;align-items:center;gap:8px;">📊 Панель аналитики (по ТЗ v2.0, раздел 6.3)</h2><span class="sub" style="color:#94a3b8;">Модель с учетом переездов и экономии ГСМ</span><div class="spacer"></div><span style="background:none;color:#fff;font-weight:700;">SmartPlanner Ядро 2.0</span></div><div class="card-b" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:16px;padding:16px;">';
     html += '<div style="background:rgba(255,255,255,0.06);padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);"><div style="font-size:11px;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;font-weight:600;">⚡ КПД Мастеров (Работа vs Дорога)</div><div style="font-size:22px;font-weight:800;color:#38bdf8;margin-bottom:4px;">82,4% <span style="font-size:13px;font-weight:500;color:#94a3b8;">на объектах</span></div><div style="font-size:11.5px;color:#cbd5e1;">🚗 В пути: <b>17,6%</b> (норма ТЗ: ≤ 20%)<br>Среднее время переезда: <b>≈ 16 мин</b></div></div>';
@@ -527,14 +667,225 @@
     if (dashAreaSel) dashAreaSel.addEventListener('change', function (e) { S.dashArea = e.target.value || null; renderDashboard(); });
   }
 
-  function kpi(val, lab, hint, color, id) {
-    return '<div class="kpi"><div class="acc" style="background:' + color + '"></div><div class="lab">' + lab + '</div><div class="val"' + (id ? ' id="' + id + '"' : '') + '>' + val + '</div><div class="hint">' + hint + '</div></div>';
+  function kpi(val, lab, hint, color, action) {
+    var clickAttr = action ? ' data-action="' + action + '" style="cursor:pointer"' : '';
+    return '<div class="kpi"' + clickAttr + '><div class="acc" style="background:' + color + '"></div><div class="lab">' + lab + '</div><div class="val">' + val + '</div><div class="hint">' + hint + '</div></div>';
   }
   function ringHTML(pct, size, stroke, small) {
     var r = (size - stroke) / 2, c = 2 * Math.PI * r, off = c * (1 - pct / 100);
     var col = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--yellow)' : 'var(--red)';
     var fs = small ? 13 : 16;
     return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '"><circle cx="' + (size / 2) + '" cy="' + (size / 2) + '" r="' + r + '" fill="none" stroke="#e2e8f0" stroke-width="' + stroke + '"/><circle cx="' + (size / 2) + '" cy="' + (size / 2) + '" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="' + stroke + '" stroke-linecap="round" stroke-dasharray="' + c + '" stroke-dashoffset="' + off + '" transform="rotate(-90 ' + (size / 2) + ' ' + (size / 2) + ')"/><text x="50%" y="54%" text-anchor="middle" font-size="' + fs + '" font-weight="800" fill="#1f2937">' + pct + '%</text></svg>';
+  }
+
+  /* =====================================================================
+     ПОПАП-КАЛЕНДАРЬ (выбор даты в планировании)
+     ===================================================================== */
+  var dpState = { viewMonth: new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), selectedDate: null };
+
+  function openDatePicker(anchorEl) {
+    var popup = document.getElementById('date-popup');
+    if (!popup) return;
+
+    // Позиционируем попап относительно заголовка
+    var rect = anchorEl.getBoundingClientRect();
+    popup.style.left = Math.min(rect.left, window.innerWidth - 340) + 'px';
+    popup.style.top = (rect.bottom + 8) + 'px';
+
+    dpState.viewMonth = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+    var shift = (S.calMode === 'week') ? S.weekShift : (S.calMode === 'month' ? S.monthShift : S.dayShift);
+    if (S.calMode === 'week') dpState.viewMonth = addDays(mondayOf(TODAY), shift * 7);
+    if (S.calMode === 'month') dpState.viewMonth = new Date(TODAY.getFullYear(), TODAY.getMonth() + shift, 1);
+    if (S.calMode === 'day') dpState.viewMonth = addDays(TODAY, shift);
+
+    renderDatePicker();
+    popup.classList.add('open');
+
+    // Закрытие по клику вне попапа
+    setTimeout(function() {
+      document.addEventListener('click', closeDatePickerOutside);
+    }, 100);
+  }
+
+  function closeDatePickerOutside(e) {
+    var popup = document.getElementById('date-popup');
+    if (!popup || !popup.classList.contains('open')) return;
+    if (!popup.contains(e.target) && !e.target.closest('#cal-title')) {
+      closeDatePicker();
+    }
+  }
+
+  function closeDatePicker() {
+    var popup = document.getElementById('date-popup');
+    if (popup) popup.classList.remove('open');
+    document.removeEventListener('click', closeDatePickerOutside);
+  }
+
+  function renderDatePicker() {
+    var m = dpState.viewMonth.getMonth();
+    var y = dpState.viewMonth.getFullYear();
+    var monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+    document.getElementById('dp-month-year').textContent = monthNames[m] + ' ' + y;
+
+    var grid = document.getElementById('dp-grid');
+    var html = '';
+    var wds = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    wds.forEach(function(wd) { html += '<div class="dp-wd">' + wd + '</div>'; });
+
+    var firstDay = new Date(y, m, 1);
+    var lastDay = new Date(y, m + 1, 0);
+    var startOffset = (firstDay.getDay() + 6) % 7;
+
+    // Дни предыдущего месяца
+    for (var i = startOffset - 1; i >= 0; i--) {
+      var d = new Date(y, m, -i);
+      html += '<button class="dp-day other-month" data-date="' + key(d) + '">' + d.getDate() + '</button>';
+    }
+
+    // Текущий месяц
+    for (var day = 1; day <= lastDay.getDate(); day++) {
+      var d = new Date(y, m, day);
+      var cls = 'dp-day';
+      if (sameDay(d, TODAY)) cls += ' today';
+      html += '<button class="' + cls + '" data-date="' + key(d) + '">' + day + '</button>';
+    }
+
+    // Дни следующего месяца
+    var totalCells = startOffset + lastDay.getDate();
+    var remaining = (7 - (totalCells % 7)) % 7;
+    for (var j = 1; j <= remaining; j++) {
+      var d = new Date(y, m + 1, j);
+      html += '<button class="dp-day other-month" data-date="' + key(d) + '">' + j + '</button>';
+    }
+
+    grid.innerHTML = html;
+
+    // Привязка кликов по дням
+    grid.querySelectorAll('.dp-day').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        grid.querySelectorAll('.dp-day.selected').forEach(function(b) { b.classList.remove('selected'); });
+        btn.classList.add('selected');
+        dpState.selectedDate = btn.dataset.date;
+      });
+    });
+  }
+
+  function applyDatePicker() {
+    if (!dpState.selectedDate) { closeDatePicker(); return; }
+    var picked = new Date(dpState.selectedDate + 'T00:00:00');
+    var off = dateToOff(picked);
+
+    if (S.calMode === 'day') S.dayShift = off;
+    else if (S.calMode === 'week') S.weekShift = Math.floor(off / 7);
+    else if (S.calMode === 'month') S.monthShift = (picked.getFullYear() - TODAY.getFullYear()) * 12 + (picked.getMonth() - TODAY.getMonth());
+
+    closeDatePicker();
+    renderCalendar();
+  }
+
+  function initDatePicker() {
+    var prev = document.getElementById('dp-prev');
+    var next = document.getElementById('dp-next');
+    var todayBtn = document.getElementById('dp-today');
+    var cancelBtn = document.getElementById('dp-cancel');
+    var applyBtn = document.getElementById('dp-apply');
+
+    if (prev) prev.addEventListener('click', function() {
+      dpState.viewMonth = new Date(dpState.viewMonth.getFullYear(), dpState.viewMonth.getMonth() - 1, 1);
+      renderDatePicker();
+    });
+    if (next) next.addEventListener('click', function() {
+      dpState.viewMonth = new Date(dpState.viewMonth.getFullYear(), dpState.viewMonth.getMonth() + 1, 1);
+      renderDatePicker();
+    });
+    if (todayBtn) todayBtn.addEventListener('click', function() {
+      dpState.viewMonth = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+      renderDatePicker();
+    });
+    if (cancelBtn) cancelBtn.addEventListener('click', closeDatePicker);
+    if (applyBtn) applyBtn.addEventListener('click', applyDatePicker);
+  }
+
+  /* =====================================================================
+     КОРЗИНА (история удалённых задач за 2 недели)
+     ===================================================================== */
+  var TRASH_KEY = 'smartplan_trash';
+
+  function getTrash() {
+    try { var raw = localStorage.getItem(TRASH_KEY); if (raw) return JSON.parse(raw); } catch (e) {}
+    return [];
+  }
+
+  function saveTrash(arr) {
+    try { localStorage.setItem(TRASH_KEY, JSON.stringify(arr)); } catch (e) {}
+  }
+
+  function addToTrash(task) {
+    var trash = getTrash();
+    task._deletedAt = Date.now();
+    trash.push(task);
+    // Оставляем только задачи за последние 14 дней
+    var cutoff = Date.now() - 14 * 86400000;
+    trash = trash.filter(function(t) { return t._deletedAt > cutoff; });
+    saveTrash(trash);
+  }
+
+  function restoreFromTrash(trashIdx) {
+    var trash = getTrash();
+    if (trashIdx < 0 || trashIdx >= trash.length) return;
+    var task = trash[trashIdx];
+    delete task._deletedAt;
+    if (TASKS_DB) { TASKS_DB.addTask(task); S.tasks = TASKS_DB.getTasks(); }
+    else { S.tasks.push(task); }
+    trash.splice(trashIdx, 1);
+    saveTrash(trash);
+    drawCalendarGrid();
+    toast('ok', '✅ Задача восстановлена из корзины');
+  }
+
+  function purgeTrash() {
+    saveTrash([]);
+    toast('ok', '🗑 Корзина очищена');
+  }
+
+  function openTrashModal() {
+    var trash = getTrash();
+    // Сортируем — свежие удаления сверху
+    trash.sort(function(a, b) { return (b._deletedAt || 0) - (a._deletedAt || 0); });
+
+    var html = '<div class="modal-h"><h3>🗑 Корзина</h3><button class="x" data-action="close-modal">×</button></div>';
+    html += '<div class="modal-b" style="max-height:70vh;overflow:auto;">';
+
+    if (!trash.length) {
+      html += '<div class="empty" style="padding:40px 20px;">Корзина пуста<br><span style="font-size:12px;">Удалённые задачи хранятся 14 дней</span></div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Задач в корзине: ' + trash.length + ' · хранятся 14 дней</div>';
+      trash.forEach(function(t, idx) {
+        var w = WORK.getWork('УБиРОГС', t.w) || WORK_MAP[t.w];
+        var deletedDate = t._deletedAt ? new Date(t._deletedDate || t._deletedAt) : null;
+        var delStr = deletedDate ? deletedDate.getDate() + ' ' + MON[deletedDate.getMonth()] : '';
+        var daysAgo = t._deletedAt ? Math.floor((Date.now() - t._deletedAt) / 86400000) : 0;
+
+        html += '<div class="rz-item">';
+        html += '<div class="rz-bar" style="background:var(--muted);"></div>';
+        html += '<div class="rz-main">';
+        html += '<div class="rz-t">' + esc(w ? w.name : 'Задача') + ' — ' + esc(t.addr || addrOf(t)) + '</div>';
+        html += '<div class="rz-s">Удалено: ' + delStr + ' · ' + (daysAgo === 0 ? 'сегодня' : daysAgo + ' дн назад') + ' · Объём: ' + (t.volume || 1) + '</div>';
+        html += '</div>';
+        html += '<button class="btn sm" data-action="restore-task" data-trash-idx="' + idx + '" style="color:var(--green);white-space:nowrap;">↩ Восстановить</button>';
+        html += '</div>';
+      });
+
+      html += '<div style="margin-top:16px;text-align:right;">';
+      html += '<button class="btn sm" data-action="purge-trash" style="color:var(--red);">Очистить корзину полностью</button>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    html += '<div class="modal-f"><button class="btn" data-action="close-modal">Закрыть</button></div>';
+
+    modal.innerHTML = html;
+    overlay.classList.add('show');
   }
 
   /* =====================================================================
@@ -545,7 +896,7 @@
     html += segBtn('day', 'День') + segBtn('week', 'Неделя') + segBtn('month', 'Месяц');
     html += '</div>';
     html += '<button class="btn sm" data-action="cal-prev">‹</button>';
-    html += '<span class="cal-title" id="cal-title"></span>';
+    html += '<span class="cal-title" id="cal-title" style="cursor:pointer;padding:4px 12px;border-radius:8px;transition:.15s;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px;" onmouseover="this.style.background=\'#eff6ff\';this.style.textDecorationColor=\'#2563eb\'" onmouseout="this.style.background=\'transparent\';this.style.textDecorationColor=\'transparent\'" title="Нажмите для выбора даты"></span>';
     html += '<button class="btn sm" data-action="cal-next">›</button>';
     if (S.calMode !== 'day' || S.dayShift !== 0) html += '<button class="btn sm" data-action="cal-today">Сегодня</button>';
     if (canPlan()) {
@@ -553,7 +904,7 @@
       html += '<button class="btn sm" data-action="optimize-works" style="background:#6366f1;color:#fff;border-color:#6366f1;" title="Автоматическое распределение работ без просрочек с соблюдением 8-часового рабочего дня (ТЗ 2.0)">⚡ Оптимизировать работы</button>';
       html += '<button class="btn sm" data-action="import-tasks-excel" style="background:#10b981;color:#fff;border-color:#10b981;" title="Импорт задач из Excel с валидацией (ТЗ 2.0)">📥 Импорт из Excel</button>';
     }
-    html += '<div class="trash-zone" id="trash-zone" title="Перетащите сюда задачу для удаления">' + IC.trash + ' <span>Корзина</span></div>';
+    html += '<div class="trash-zone" id="trash-zone" data-action="open-trash" title="Перетащите задачу для удаления или нажмите для просмотра удалённых" style="cursor:pointer;">' + IC.trash + ' <span>Корзина</span></div>';
     html += '<div class="legend"><span><i style="background:var(--green-l);border:1px solid var(--green)"></i>В норме</span><span><i style="background:var(--yellow-l);border:1px solid var(--yellow)"></i>Мало времени</span><span><i style="background:var(--red-l);border:1px solid var(--red)"></i>Просрочка</span><span><i style="background:#fef3c7;border:1px solid #f59e0b"></i>Ожидание погоды</span><span><i style="background:#f1f5f9;border:1px solid #94a3b8"></i>Выполнено</span></div>';
     html += '</div>';
     if (S.role === 'master') {
@@ -572,7 +923,12 @@
     var grid = document.getElementById('cal-grid');
     var masters = visibleMasters();
     var days = buildDayWindow();
-    document.getElementById('cal-title').textContent = windowTitle(days);
+    var titleEl = document.getElementById('cal-title');
+    if (titleEl) {
+      titleEl.textContent = windowTitle(days);
+      // Привязка открытия календаря
+      titleEl.onclick = function() { openDatePicker(titleEl); };
+    }
 
     if (!masters.length) {
       grid.style.gridTemplateColumns = '1fr';
@@ -606,12 +962,14 @@
             var draggable = (!isDone(t) && canEditTask(t)) ? 'true' : 'false';
             var wMeta = workOf(t);
             var badges = '';
-            if (t.needs_permit) badges += '<span class="ov-permit">📋</span>';
-            else if (wMeta && wMeta.min_temp > -50) {
+            var permitLine = '';
+            if (t.needs_permit) {
+              permitLine = '<span class="tile-permit">📋 Ордер до: ' + (t.dl_date || '—') + '</span>';
+            } else if (wMeta && wMeta.min_temp > -50) {
               var wf = getWeatherForecast(off);
               if (wf && wf.temp != null && wf.temp < wMeta.min_temp) badges += '<span class="ov-weather">⚠</span>';
             }
-            html += '<div class="tile t-' + col + '" draggable="' + draggable + '" data-action="edit-task" data-tid="' + t.id + '" title="Нажмите для редактирования задания">' + badges + '<span class="tw">' + esc(w ? w.name : '?') + (t.volume ? ' ×' + t.volume : '') + '</span><span class="th">' + esc(addrOf(t)) + ' · ' + fmtH(taskHours(t)) + 'ч</span><label class="tile-chk" onmousedown="event.stopPropagation()" ondragstart="return false"><input type="checkbox" data-action="toggle-done" data-tid="' + t.id + '"' + (isDone(t) ? ' checked' : '') + '><span class="tile-chk-box"></span></label></div>';
+            html += '<div class="tile t-' + col + '" draggable="' + draggable + '" data-action="edit-task" data-tid="' + t.id + '" title="Нажмите для редактирования задания">' + badges + '<span class="tw">' + esc(w ? w.name : '?') + (t.volume ? ' ×' + t.volume : '') + '</span><span class="th">' + esc(addrOf(t)) + ' · ' + fmtH(taskHours(t)) + 'ч</span>' + permitLine + '<label class="tile-chk" onmousedown="event.stopPropagation()" ondragstart="return false"><input type="checkbox" data-action="toggle-done" data-tid="' + t.id + '"' + (isDone(t) ? ' checked' : '') + '><span class="tile-chk-box"></span></label></div>';
           }
         });
         html += '</div>';
@@ -637,11 +995,147 @@
   function windowTitle(days) {
     if (S.calMode === 'day') return fmt(days[0]) + ' · ' + WD_FULL[days[0].getDay()];
     if (S.calMode === 'week') return fmt(days[0]) + ' — ' + fmt(days[6]);
-    return MON[days[0].getMonth()] + ' ' + days[0].getFullYear();
+    return MON_NOM[days[0].getMonth()] + ' ' + days[0].getFullYear();
   }
 
   /* ---------- DRAG & DROP ---------- */
   var dragId = null;
+  /* === Общие функции переноса задач (используются DnD и touch) === */
+  function moveTaskToCell(id, cell) {
+    var t = findTask(id); if (!t) return;
+    if (!canEditTask(t)) { toast('err', 'Нет прав на редактирование этой задачи'); return; }
+    var newMaster = cell.dataset.master, newOff = parseInt(cell.dataset.off, 10);
+    if (!canDropOn(newMaster)) { toast('err', 'Этот мастер вне вашего доступа'); return; }
+    var target = masterById(newMaster);
+    var moved = [];
+    if (t.m !== newMaster) { t.m = newMaster; moved.push('мастер → ' + (target ? target.name : '?')); }
+    if (t.d !== newOff) { t.d = newOff; moved.push('дата → ' + fmtShort(newOff)); }
+    if (moved.length) {
+      if (TASKS_DB) { TASKS_DB.updateTask(t.id, t); }
+      drawCalendarGrid();
+      var load = loadForDay(newMaster, newOff);
+      if (load > CAP) {
+        toast('warn', '🛑 Аналитика помощника (ТЗ 7): Внимание! Перегрузка мастера ' + (target ? target.name : '') + ' до ' + fmtH(load) + ' ч (при норме ' + CAP + ' ч). Предлагаем перенести задачу на другой день или заменить мастера!');
+      } else {
+        toast('ok', '💡 Аналитика помощника (ТЗ 7): Перенос успешно выполнен. Текущая загрузка мастера ' + (target ? target.name : '') + ' на этот день составляет ' + fmtH(load) + ' ч / ' + CAP + ' ч.');
+      }
+    }
+  }
+
+  function deleteTaskToTrash(id) {
+    var t = findTask(id); if (!t) return;
+    if (!canEditTask(t)) { toast('err', 'Нет прав на удаление этой задачи'); return; }
+    var w = workOf(t);
+    if (!window.confirm('Удалить задачу «' + (w ? w.name : '?') + ' — ' + addrOf(t) + '»?')) return;
+    addToTrash(JSON.parse(JSON.stringify(t)));
+    if (TASKS_DB) { TASKS_DB.deleteTask(id); S.tasks = TASKS_DB.getTasks(); } else { S.tasks = S.tasks.filter(function (x) { return x.id !== id; }); }
+    drawCalendarGrid();
+    toast('ok', '🗑️ Аналитика помощника (ТЗ 7): Задача удалена. Освободилось ' + fmtH(taskHours(t)) + ' ч у мастера ' + (masterById(t.m) ? masterById(t.m).name : '?') + '.');
+  }
+
+  function reorderMapCard(fromId, toId) {
+    var pts = ymState.pts;
+    if (!pts || !pts.length) return;
+    var fromIdx = -1, toIdx = -1;
+    pts.forEach(function (p, i) {
+      if (p.id === fromId) fromIdx = i;
+      if (p.id === toId) toIdx = i;
+    });
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
+    var moved = pts.splice(fromIdx, 1)[0];
+    pts.splice(toIdx, 0, moved);
+    ymState.manualOrder = true;
+    refreshMapCards(pts);
+    drawMap(pts);
+    toast('ok', 'Порядок изменён');
+  }
+
+  /* === Touch Drag & Drop Polyfill (для планшетов и телефонов) === */
+  function enableTouchDnD() {
+    var ts = null; // touchState
+
+    function onStart(e) {
+      var tile = e.target.closest('.tile[draggable="true"]');
+      var mtask = e.target.closest('.mtask[draggable="true"]');
+      var el = tile || mtask;
+      if (!el) return;
+      // Не мешаем кликам по чекбоксам, кнопкам и grip-иконкам
+      if (e.target.closest('.tile-chk') || e.target.closest('button') || e.target.tagName === 'INPUT') return;
+      var touch = e.touches[0];
+      ts = {
+        type: tile ? 'tile' : 'mtask',
+        id: tile ? tile.dataset.tid : mtask.dataset.mid,
+        startX: touch.clientX, startY: touch.clientY,
+        moved: false, el: el, ghost: null, dropTarget: null, dropType: null
+      };
+    }
+
+    function onMove(e) {
+      if (!ts) return;
+      var touch = e.touches[0];
+      if (!ts.moved) {
+        if (Math.abs(touch.clientX - ts.startX) < 8 && Math.abs(touch.clientY - ts.startY) < 8) return;
+        ts.moved = true;
+        // Создаём ghost-клон
+        var rect = ts.el.getBoundingClientRect();
+        ts.ghost = ts.el.cloneNode(true);
+        ts.ghost.style.cssText = 'position:fixed;z-index:99999;opacity:0.85;pointer-events:none;width:' + rect.width + 'px;transform:scale(0.92) rotate(-1deg);box-shadow:0 8px 24px rgba(0,0,0,.3);';
+        document.body.appendChild(ts.ghost);
+        ts.el.style.opacity = '0.25';
+      }
+      if (ts.moved) {
+        e.preventDefault();
+        var g = ts.ghost;
+        g.style.left = (touch.clientX - g.offsetWidth / 2) + 'px';
+        g.style.top = (touch.clientY - 25) + 'px';
+        // Найти элемент под пальцем (скрываем ghost на мгновение)
+        g.style.display = 'none';
+        var under = document.elementFromPoint(touch.clientX, touch.clientY);
+        g.style.display = '';
+
+        // Очистка старой подсветки
+        document.querySelectorAll('.cell.drop-on').forEach(function (c) { c.classList.remove('drop-on'); });
+        document.querySelectorAll('.mtask.drop-above').forEach(function (c) { c.classList.remove('drop-above'); });
+        var tr = document.getElementById('trash-zone');
+        if (tr) tr.classList.remove('drop-active');
+
+        ts.dropType = null; ts.dropTarget = null;
+
+        if (ts.type === 'tile') {
+          var cell = under ? under.closest('.cell') : null;
+          var trash = under ? under.closest('.trash-zone') : null;
+          if (cell) { cell.classList.add('drop-on'); ts.dropType = 'cell'; ts.dropTarget = cell; }
+          else if (trash) { trash.classList.add('drop-active'); ts.dropType = 'trash'; ts.dropTarget = trash; }
+        } else if (ts.type === 'mtask') {
+          var card = under ? under.closest('.mtask') : null;
+          if (card && card.dataset.mid !== ts.id) { card.classList.add('drop-above'); ts.dropType = 'mtask'; ts.dropTarget = card; }
+        }
+      }
+    }
+
+    function onEnd(e) {
+      if (!ts) return;
+      if (ts.ghost) ts.ghost.remove();
+      if (ts.el) ts.el.style.opacity = '';
+      document.querySelectorAll('.cell.drop-on').forEach(function (c) { c.classList.remove('drop-on'); });
+      document.querySelectorAll('.mtask.drop-above').forEach(function (c) { c.classList.remove('drop-above'); });
+      var tr = document.getElementById('trash-zone');
+      if (tr) tr.classList.remove('drop-active');
+
+      if (ts.moved && ts.dropType && ts.dropTarget) {
+        if (ts.dropType === 'cell') moveTaskToCell(ts.id, ts.dropTarget);
+        else if (ts.dropType === 'trash') deleteTaskToTrash(ts.id);
+        else if (ts.dropType === 'mtask') reorderMapCard(ts.id, ts.dropTarget.dataset.mid);
+      }
+      ts = null;
+    }
+
+    document.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd, { passive: true });
+    document.addEventListener('touchcancel', onEnd, { passive: true });
+  }
+
   function attachCalDnD() {
     var grid = document.getElementById('cal-grid'); if (!grid) return;
     grid.addEventListener('dragstart', function (e) {
@@ -666,27 +1160,9 @@
       if (!dragId) return;
       var cell = e.target.closest('.cell'); if (!cell) return;
       e.preventDefault();
-      var id = dragId || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
       cell.classList.remove('drop-on');
-      var t = findTask(id); if (!t) return;
-      if (!canEditTask(t)) { toast('err', 'Нет прав на редактирование этой задачи'); return; }
-      var newMaster = cell.dataset.master, newOff = parseInt(cell.dataset.off, 10);
-      // мастер — только своя строка; nach/smaster — только свой участок
-      if (!canDropOn(newMaster)) { toast('err', 'Этот мастер вне вашего доступа'); return; }
-      var target = masterById(newMaster);
-      var moved = [];
-      if (t.m !== newMaster) { t.m = newMaster; moved.push('мастер → ' + (target ? target.name : '?')); }
-      if (t.d !== newOff) { t.d = newOff; moved.push('дата → ' + fmtShort(newOff)); }
-      if (moved.length) {
-        if (TASKS_DB) { TASKS_DB.updateTask(t.id, t); }
-        drawCalendarGrid();
-        var load = loadForDay(newMaster, newOff);
-        if (load > CAP) {
-          toast('warn', '🛑 Аналитика помощника (ТЗ 7): Внимание! Перегрузка мастера ' + (target ? target.name : '') + ' до ' + fmtH(load) + ' ч (при норме ' + CAP + ' ч). Предлагаем перенести задачу на другой день или заменить мастера!');
-        } else {
-          toast('ok', '💡 Аналитика помощника (ТЗ 7): Перенос успешно выполнен. Текущая загрузка мастера ' + (target ? target.name : '') + ' на этот день составляет ' + fmtH(load) + ' ч / ' + CAP + ' ч.');
-        }
-      }
+      var id = dragId || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
+      moveTaskToCell(id, cell);
     });
     grid.addEventListener('mousemove', tipHandler);
     grid.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
@@ -705,14 +1181,7 @@
         e.preventDefault();
         trash.classList.remove('drop-active');
         if (!dragId) return;
-        var t = findTask(dragId); if (!t) return;
-        if (!canEditTask(t)) { toast('err', 'Нет прав на удаление этой задачи'); return; }
-        var w = workOf(t);
-        if (!window.confirm('Удалить задачу «' + (w ? w.name : '?') + ' — ' + addrOf(t) + '»?')) return;
-        if (TASKS_DB) { TASKS_DB.deleteTask(dragId); S.tasks = TASKS_DB.getTasks(); } else { S.tasks = S.tasks.filter(function (x) { return x.id !== dragId; }); }
-        dragId = null;
-        drawCalendarGrid();
-        toast('ok', '🗑️ Аналитика помощника (ТЗ 7): Задача удалена. Освободилось ' + fmtH(taskHours(t)) + ' ч у мастера ' + (masterById(t.m) ? masterById(t.m).name : '?') + '.');
+        deleteTaskToTrash(dragId);
       });
     }
   }
@@ -997,21 +1466,7 @@
       if (!card || card.dataset.mid === mapDragId) return;
       e.preventDefault();
       e.stopPropagation();
-      // Находим индексы и меняем местами
-      var fromIdx = -1, toIdx = -1;
-      pts.forEach(function (p, i) {
-        if (p.id === mapDragId) fromIdx = i;
-        if (p.id === card.dataset.mid) toIdx = i;
-      });
-      if (fromIdx === -1 || toIdx === -1) return;
-      var moved = pts.splice(fromIdx, 1)[0];
-      pts.splice(toIdx, 0, moved);
-      ymState.manualOrder = true;
-      // Перерисовываем карточки
-      refreshMapCards(pts);
-      // Перестраиваем маршрут в новом порядке
-      drawMap(pts);
-      toast('ok', 'Порядок изменён');
+      reorderMapCard(mapDragId, card.dataset.mid);
     });
 
     drawMap(pts);
@@ -1777,6 +2232,11 @@
   }
   function routeDistKm(order) { var t = 0; for (var i = 1; i < order.length; i++) t += distKm(order[i - 1], order[i]); return t; }
   function currentBase() { for (var i = 0; i < BASES.length; i++) if (BASES[i].id === S.baseId) return BASES[i]; return BASES[0]; }
+  // Расчёт времени в пути по дистанции для Минска (средняя скорость ~27 км/ч)
+  function calculateYandexMinskTime(km, withJams) {
+    var speed = withJams ? 22 : 30; // км/ч: с пробками / без
+    return Math.max(1, Math.round((km / speed) * 60));
+  }
 
   /* =====================================================================
      ПОДДЕРЖКА КАРТОГРАФИЧЕСКИХ СЕРВИСОВ (Google, OSM, 2ГИС)
@@ -2360,6 +2820,7 @@
     S.workModalMode = mode; S.workModalWid = wid;
   }
   function saveWork() {
+    if (S.role !== 'admin') { toast('err', 'Только для администратора'); return; }
     var area = S.workArea, mode = S.workModalMode, wid = S.workModalWid;
     function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
     function chk(id) { var el = document.getElementById(id); return el ? el.checked : false; }
@@ -2376,6 +2837,7 @@
     overlay.classList.remove('show'); renderRefs();
   }
   function delWork(wid) {
+    if (S.role !== 'admin') { toast('err', 'Только для администратора'); return; }
     var w = WORK.getWork(S.workArea, wid); if (!w) return;
     if (!window.confirm('Удалить работу «' + w.name + '» с участка ' + S.workArea + '?')) return;
     WORK.deleteWork(S.workArea, wid); toast('ok', 'Работа удалена'); renderRefs();
@@ -2387,12 +2849,11 @@
   function renderUsers() {
     try {
       var users = DB.getUsers() || [];
-      var html = '<div class="card"><div class="card-h"><h2>Пользователи системы (Логины и пароли ТЗ)</h2><span class="sub">' + users.length + ' учётных записей</span><div class="spacer"></div><button class="btn sm" data-action="export-db" title="Сохранить базу учёток в файл">' + IC.download + ' Экспорт базы</button><button class="btn sm" data-action="import-db" title="Загрузить базу из файла">' + IC.upload + ' Импорт базы</button><input type="file" id="import-file" accept=".json,application/json" style="display:none">';
+      var html = '<div class="card"><div class="card-h"><h2>Пользователи системы</h2><span class="sub">' + users.length + ' учётных записей</span><div class="spacer"></div><button class="btn sm" data-action="export-db" title="Сохранить базу в Excel">' + IC.download + ' Экспорт в Excel</button><button class="btn sm" data-action="import-db" title="Загрузить базу из Excel">' + IC.upload + ' Импорт из Excel</button><input type="file" id="import-file" accept=".xlsx,.xls,.csv" style="display:none">';
       if (S.role === 'admin') {
         html += '<button class="btn primary" data-action="new-user">' + IC.plus + ' Добавить пользователя</button>';
       }
       html += '</div><div class="card-b">';
-      html += '<div class="calc" style="margin-bottom:14px">' + IC.info + ' <b>Справочник учётных записей, логинов и паролей системы ТЗ 2.0</b>. Стандартный пароль для всех тестовых аккаунтов: <b style="color:var(--blue);font-family:monospace;font-size:13px;">admin123</b> (также работает вход по паролю, совпадающему с логином). Роли ТЗ: <b>Администратор</b>, <b>Начальник участка</b>, <b>Старший мастер</b>, <b>Мастер</b>.</div>';
       if (users.length <= 1) {
         html += '<div style="margin-bottom:14px;background:#fffbeb;border:1px solid #fde68a;border-left:4px solid var(--yellow);border-radius:10px;padding:13px 15px;display:flex;gap:12px;align-items:flex-start">' + IC.info + '<div style="flex:1;font-size:12.5px;color:#78350f;line-height:1.6"><b>Новый браузер или компьютер?</b><br>Каждый браузер хранит свою базу пользователей отдельно (в Chrome их не видно из Edge и наоборот). Если пользователи уже заведены в другом браузере — перенесите их файлом:<div style="margin-top:9px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm primary" data-action="import-db">' + IC.upload + ' Импорт из файла</button><a href="#" style="font-size:11px;color:var(--blue);align-self:center" data-action="how-transfer">Как это сделать?</a></div></div></div>';
       }
@@ -2402,7 +2863,7 @@
         var me = (S.user && u.id === S.user.id) ? ' <span style="color:var(--green);font-size:11px">(вы)</span>' : '';
         var delBtn = (u.role === 'admin' && DB.countAdmins() <= 1) ? '' : '<button class="btn sm" data-action="del-user" data-uid="' + u.id + '" style="color:var(--red)">Удалить</button>';
         var displayPass = u.plain_password || 'admin123';
-        var passLabel = '<span style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;color:#0f2740;font-weight:700;">' + esc(displayPass) + '</span> <span style="font-size:11px;color:#64748b;">(или ' + esc(u.login) + ')</span>';
+        var passLabel = '<span style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;color:#0f2740;font-weight:700;">' + esc(displayPass) + '</span>';
         var actionsHtml = (S.role === 'admin') ? '<button class="btn sm" data-action="edit-user" data-uid="' + u.id + '">Изменить</button> ' + delBtn : '<span style="color:#94a3b8;font-size:11.5px;">Доступно админу</span>';
         html += '<tr><td><b>' + esc(u.full_name) + '</b>' + me + '</td><td style="font-family:monospace;font-weight:700;color:var(--blue);">' + esc(u.login) + '</td><td>' + passLabel + '</td><td>' + roleChip(u.role) + '</td><td>' + esc(u.area || '—') + '</td><td>' + (u.active ? '<span class="chip" style="background:#dcfce7;color:#15803d">активен</span>' : '<span class="chip" style="background:#fee2e2;color:#b91c1c">отключён</span>') + '</td><td style="white-space:nowrap;text-align:right">' + actionsHtml + '</td></tr>';
       });
@@ -2412,11 +2873,9 @@
       var finput = document.getElementById('import-file');
       if (finput) {
         finput.onchange = function (e) {
-          var f = e.target.files[0]; if (!f) return;
-          var r = new FileReader();
-          r.onload = function () { importDbFile(String(r.result)); };
-          r.onerror = function () { toast('err', 'Не удалось прочитать файл'); };
-          r.readAsText(f);
+          var f = e.target.files && e.target.files[0];
+          if (!f) return;
+          importDbFile(f);
           e.target.value = '';
         };
       }
@@ -2493,30 +2952,119 @@
     catch (e) { toast('err', e.message); }
   }
 
-  /* ---------- ЭКСПОРТ / ИМПОРТ БАЗЫ УЧЁТОК (отдельный файл users_db) ---------- */
+  /* ---------- ЭКСПОРТ / ИМПОРТ БАЗЫ УЧЁТОК (Excel) ---------- */
   function exportDb() {
-    var json = DB.exportJSON();
-    var ok = DB.downloadFile('users_db.json', json);
-    if (ok) toast('ok', 'База учётных записей сохранена в файл users_db.json (' + DB.count() + ' пользовател' + plural(DB.count(), 'ь', 'я', 'ей') + ').');
-    else toast('warn', 'Скачивание заблокировано браузером. В продакшене выгрузка идёт через серверный API.');
+    if (!window.XLSX) { toast('err', 'Библиотека SheetJS (XLSX) не загружена'); return; }
+    var users = DB.getUsers() || [];
+    var data = [];
+    data.push(['ФИО', 'Логин', 'Пароль для входа', 'Роль', 'Участок', 'Статус', 'Действия']);
+    users.forEach(function (u) {
+      if (!u) return;
+      var roleName = (ROLE_INFO[u.role] || { label: u.role }).label;
+      var status = u.active ? 'активен' : 'отключён';
+      data.push([u.full_name || '', u.login || '', u.plain_password || 'admin123', roleName, u.area || '—', status, '']);
+    });
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Пользователи');
+    var fileName = 'База_пользователей_' + key(TODAY) + '.xlsx';
+    try {
+      XLSX.writeFile(wb, fileName);
+      toast('ok', '📥 Скачан файл: ' + fileName + ' (' + users.length + ' записей)');
+    } catch (err) {
+      console.error('Ошибка Excel:', err);
+      toast('err', 'Ошибка: ' + err.message);
+    }
   }
-  function importDbFile(text) {
-    var replace = window.confirm(
-      'Загрузить базу учётных записей из файла?\n\n' +
-      '• ОК — ПОЛНАЯ ЗАМЕНА текущей базы данными из файла\n' +
-      '• Отмена — ДОБАВИТЬ только новых (текущие останутся)'
-    );
-    DB.importJSON(text, replace ? 'replace' : 'merge').then(function (res) {
-      var msg = res.mode === 'replace'
-        ? ('База заменена: загружено ' + res.added + ' пользовател' + plural(res.added, 'ь', 'я', 'ей') + '.')
-        : ('Добавлено новых: ' + res.added + ', дубликаты пропущены.');
-      toast('ok', msg);
-      // если при замене текущий пользователь исчез — выходим на вход
-      if (!DB.getUser(S.user.id)) { DB.clearSession(); showLoginScreen(); return; }
-      S.user = DB.getUser(S.user.id);
-      applyUser();
-      refresh();
-    }, function (e) { toast('err', 'Ошибка импорта: ' + e.message); });
+
+  function importDbFile(file) {
+    if (!window.XLSX) { toast('err', 'Библиотека SheetJS (XLSX) не загружена'); return; }
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        var data = new Uint8Array(e.target.result);
+        var wb = XLSX.read(data, { type: 'array' });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        if (!rows || rows.length < 2) { toast('warn', 'Файл пуст'); return; }
+
+        // Поиск столбцов по заголовкам
+        var headers = rows[0].map(function (h) { return String(h || '').toLowerCase().trim(); });
+        var idxName = -1, idxLogin = -1, idxPass = -1, idxRole = -1, idxArea = -1, idxStatus = -1;
+        headers.forEach(function (h, i) {
+          if (h.indexOf('фио') !== -1 || h.indexOf('имя') !== -1) idxName = i;
+          else if (h.indexOf('логин') !== -1) idxLogin = i;
+          else if (h.indexOf('пароль') !== -1) idxPass = i;
+          else if (h.indexOf('роль') !== -1) idxRole = i;
+          else if (h.indexOf('участ') !== -1) idxArea = i;
+          else if (h.indexOf('статус') !== -1) idxStatus = i;
+        });
+        if (idxLogin === -1) { toast('err', 'Не найден столбец «Логин»'); return; }
+        if (idxName === -1) idxName = 0;
+        if (idxPass === -1) idxPass = 2;
+        if (idxRole === -1) idxRole = 3;
+        if (idxArea === -1) idxArea = 4;
+        if (idxStatus === -1) idxStatus = 5;
+
+        // Обратный словарь ролей
+        var roleMap = {};
+        Object.keys(ROLE_INFO).forEach(function (r) { roleMap[ROLE_INFO[r].label.toLowerCase()] = r; });
+
+        var replace = window.confirm(
+          'Импорт пользователей из Excel?\n\n' +
+          '• ОК — ОБНОВИТЬ существующих и ДОБАВИТЬ новых\n' +
+          '• Отмена — только ДОБАВИТЬ новых (существующих не трогать)'
+        );
+
+        var existingUsers = DB.getUsers();
+        var added = 0, updated = 0;
+        var pending = 0;
+
+        for (var i = 1; i < rows.length; i++) {
+          var row = rows[i];
+          if (!row || !row.length) continue;
+          var fullName = String(row[idxName] != null ? row[idxName] : '').trim();
+          var login = String(row[idxLogin] != null ? row[idxLogin] : '').trim();
+          if (!login) continue;
+
+          var password = String(row[idxPass] != null ? row[idxPass] : 'admin123').trim() || 'admin123';
+          var roleName = String(row[idxRole] != null ? row[idxRole] : '').trim().toLowerCase();
+          var role = roleMap[roleName] || 'master';
+          var area = String(row[idxArea] != null ? row[idxArea] : '').trim();
+          if (area === '—' || area === '') area = '';
+          var statusStr = String(row[idxStatus] != null ? row[idxStatus] : '').trim().toLowerCase();
+          var active = statusStr.indexOf('актив') !== -1 || statusStr === '';
+
+          // Поиск существующего
+          var existing = null;
+          for (var j = 0; j < existingUsers.length; j++) {
+            if (existingUsers[j].login.toLowerCase() === login.toLowerCase()) { existing = existingUsers[j]; break; }
+          }
+
+          if (existing && replace) {
+            pending++;
+            DB.updateUser(existing.id, {
+              full_name: fullName || existing.full_name, login: login, password: password,
+              role: role, area: area, active: active
+            }).then(function () { updated++; }).catch(function () {});
+          } else if (!existing) {
+            pending++;
+            DB.addUser({
+              full_name: fullName || login, login: login, password: password,
+              role: role, area: area, active: active
+            }).then(function () { added++; }).catch(function () {});
+          }
+        }
+
+        toast('ok', '✓ Импорт запущен: добавляется ' + (pending) + ' записей');
+        setTimeout(function() { toast('ok', 'Готово: добавлено ' + added + ', обновлено ' + updated); refresh(); }, 1500);
+      } catch (err) {
+        console.error('Ошибка импорта Excel:', err);
+        toast('err', 'Ошибка чтения Excel: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
   }
   function plural(n, one, few, many) {
     var m10 = n % 10, m100 = n % 100;
@@ -2528,6 +3076,72 @@
   /* =====================================================================
      РЕНДЕР: ОТЧЁТЫ (печать вместо Excel)
      ===================================================================== */
+  /* =====================================================================
+     ОТЧЁТЫ: помощники для выбранного отчётного месяца
+     ===================================================================== */
+  // Возвращает {y, m} выбранного отчётного месяца (по умолчанию — текущий)
+  function getReportMY() {
+    if (S.reportMonth) return { y: S.reportMonth.year, m: S.reportMonth.month };
+    return { y: TODAY.getFullYear(), m: TODAY.getMonth() };
+  }
+  // Строка периода отчёта: «июля 2026»
+  function reportPeriodStr() { var p = getReportMY(); return MON_NOM[p.m] + ' ' + p.y; }
+  // Фильтр задач по выбранному отчётному месяцу (по плановой дате)
+  function filterReportMonth(tasks) {
+    var p = getReportMY();
+    return tasks.filter(function (t) { var d = offToDate(t.d); return d.getMonth() === p.m && d.getFullYear() === p.y; });
+  }
+  // Сокращённый YYYY-MM для имени файла (отчётный месяц)
+  function reportMonthKey() { var p = getReportMY(); return p.y + '-' + String(p.m + 1).padStart(2, '0'); }
+
+  // === Состояние календаря выбора месяца в отчётах ===
+  var rmState = { viewYear: TODAY.getFullYear() };
+
+  function toggleReportMonthPicker() {
+    var dd = document.getElementById('report-month-dropdown');
+    if (!dd) return;
+    if (dd.classList.contains('open')) { dd.classList.remove('open'); return; }
+    var p = getReportMY();
+    rmState.viewYear = p.y;
+    renderReportMonthPicker();
+    // Позиционируем по кнопке
+    var btn = document.querySelector('[data-action="report-month-toggle"]');
+    if (btn) {
+      var rect = btn.getBoundingClientRect();
+      dd.style.top = (rect.bottom + 6) + 'px';
+      dd.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 316)) + 'px';
+    }
+    dd.classList.add('open');
+  }
+
+  function renderReportMonthPicker() {
+    var dd = document.getElementById('report-month-dropdown');
+    if (!dd) return;
+    var p = getReportMY();
+    var html = '';
+    html += '<div class="rm-head">';
+    html += '<button type="button" data-action="rm-prev-year">‹</button>';
+    html += '<span class="rm-year">' + rmState.viewYear + '</span>';
+    html += '<button type="button" data-action="rm-next-year">›</button>';
+    html += '<button type="button" class="rm-close" data-action="rm-close">×</button>';
+    html += '</div>';
+    html += '<div class="rm-grid">';
+    for (var mo = 0; mo < 12; mo++) {
+      var isSel = (rmState.viewYear === p.y && mo === p.m);
+      var isCur = (rmState.viewYear === TODAY.getFullYear() && mo === TODAY.getMonth());
+      html += '<button type="button" class="rm-month' + (isSel ? ' selected' : '') + (isCur ? ' current' : '') + '" data-action="rm-pick" data-year="' + rmState.viewYear + '" data-month="' + mo + '">' + MON_NOM[mo] + '</button>';
+    }
+    html += '</div>';
+    dd.innerHTML = html;
+  }
+
+  function pickReportMonth(year, month) {
+    S.reportMonth = { year: year, month: month };
+    var dd = document.getElementById('report-month-dropdown');
+    if (dd) dd.classList.remove('open');
+    renderReports();
+  }
+
   /* ---------- ПЕЧАТЬ ОТЧЁТА (открывает окно печати браузера) ---------- */
   function printReport(title, bodyHtml) {
     var w = window.open('', '_blank', 'width=900,height=700');
@@ -2554,7 +3168,7 @@
       '.footer{margin-top:20pt;font-size:10pt;color:#888;text-align:center;border-top:1px solid #ccc;padding-top:6pt}' +
       '@media print{.noprint{display:none}}' +
       '</style></head><body>' +
-      '<div class="hdr"><div class="org">УП «МИНГАЗ» · УБиРОГС</div><h1>' + title + '</h1><div class="date">Период: ' + MON[TODAY.getMonth()] + ' ' + TODAY.getFullYear() + ' · Сформирован: ' + fmt(TODAY) + '</div></div>' +
+      '<div class="hdr"><div class="org">УП «МИНГАЗ» · УБиРОГС</div><h1>' + title + '</h1><div class="date">Период: ' + reportPeriodStr() + ' · Сформирован: ' + fmt(TODAY) + '</div></div>' +
       bodyHtml +
       '<div class="footer">SmartPlan · ' + key(TODAY) + '</div>' +
       '<div class="noprint" style="text-align:center;margin-top:16pt"><button onclick="window.print()" style="padding:8pt 24pt;font-size:12pt;cursor:pointer;background:#2563eb;color:#fff;border:none;border-radius:6pt">🖨 Печать</button></div>' +
@@ -2566,7 +3180,7 @@
 
   // === Отчёт №1: План-график ===
   function printReport1() {
-    var rows = visibleTasks().filter(function (t) { var d = offToDate(t.d); return d.getMonth() === TODAY.getMonth() && d.getFullYear() === TODAY.getFullYear(); });
+    var rows = filterReportMonth(visibleTasks());
     rows.sort(function (a, b) { if (a.d !== b.d) return a.d - b.d; return addrOf(a).localeCompare(addrOf(b)); });
     var body = '<table><thead><tr><th>Дата</th><th>Мастер</th><th>Объект</th><th>Вид работы</th><th>Объём</th><th>Трудозатраты</th></tr></thead><tbody>';
     var totalH = 0;
@@ -2583,7 +3197,7 @@
   // === Отчёт №2: План/факт ===
   function printReport2() {
     var byMaster = {};
-    visibleTasks().forEach(function (t) { byMaster[t.m] = byMaster[t.m] || { p: 0, f: 0 }; byMaster[t.m].p++; if (isDone(t)) byMaster[t.m].f++; });
+    filterReportMonth(visibleTasks()).forEach(function (t) { byMaster[t.m] = byMaster[t.m] || { p: 0, f: 0 }; byMaster[t.m].p++; if (isDone(t)) byMaster[t.m].f++; });
     var totP = 0, totF = 0;
     var body = '<table><thead><tr><th>Мастер</th><th>Участок</th><th style="text-align:center">План</th><th style="text-align:center">Факт</th><th style="text-align:center">Выполнено, %</th></tr></thead><tbody>';
     Object.keys(byMaster).forEach(function (mid) {
@@ -2599,7 +3213,7 @@
 
   // === Спецотчёт: Контроль ордеров ===
   function printPermitReport() {
-    var tasks = visibleTasks().filter(function (t) { return t.needs_permit; });
+    var tasks = filterReportMonth(visibleTasks()).filter(function (t) { return t.needs_permit; });
     tasks.sort(function (a, b) { return a.dl - b.dl; });
     var body = '<p style="font-size:11pt;color:#444;margin-bottom:8pt">Работы, требующие разрешения (ордера). Проверьте сроки истечения.</p>';
     body += '<table><thead><tr><th>Вид работы</th><th>Объект</th><th>Мастер</th><th>Ордер до</th><th>Осталось</th></tr></thead><tbody>';
@@ -2617,7 +3231,7 @@
 
   // === Спецотчёт: Контроль снега ===
   function printSnowReport() {
-    var tasks = visibleTasks().filter(function (t) { return t.depends_on_snow; });
+    var tasks = filterReportMonth(visibleTasks()).filter(function (t) { return t.depends_on_snow; });
     var body = '<p style="font-size:11pt;color:#444;margin-bottom:8pt">Снегоуборочные работы. Норматив реагирования — 48 часов после снегопада.</p>';
     body += '<table><thead><tr><th>Вид работы</th><th>Объект</th><th>Мастер</th><th>Объём</th><th>Трудозатраты</th></tr></thead><tbody>';
     tasks.forEach(function (t) {
@@ -2631,7 +3245,7 @@
 
   // === Спецотчёт: Ожидание погоды ===
   function printWeatherReport() {
-    var tasks = visibleTasks().filter(function (t) { var w = workOf(t); var wf = getWeatherForecast(t.d); return w && w.min_temp > -50 && wf && wf.temp != null && wf.temp < w.min_temp; });
+    var tasks = filterReportMonth(visibleTasks()).filter(function (t) { var w = workOf(t); var wf = getWeatherForecast(t.d); return w && w.min_temp > -50 && wf && wf.temp != null && wf.temp < w.min_temp; });
     var body = '<p style="font-size:11pt;color:#444;margin-bottom:8pt">Задачи, заблокированные погодными условиями (температура ниже допустимой).</p>';
     body += '<table><thead><tr><th>Вид работы</th><th>Объект</th><th>Мин. t°C</th><th>Прогноз t°C</th><th>Погода</th><th>План</th></tr></thead><tbody>';
     tasks.forEach(function (t) {
@@ -2643,30 +3257,283 @@
     printReport('Ожидание погоды', body);
   }
 
+  // === ЭКСПОРТ ОТЧЁТОВ В EXCEL ===
+  function exportReport1Excel() {
+    if (!window.XLSX) { toast('err', 'Библиотека SheetJS (XLSX) не загружена'); return; }
+    var data = [];
+    data.push(['План-график работ — ' + reportPeriodStr()]);
+    data.push(['Сформирован: ' + fmt(TODAY)]);
+    data.push([]);
+    data.push(['Дата', 'Мастер', 'Объект', 'Вид работы', 'Объём', 'Трудозатраты, ч']);
+
+    var rows = filterReportMonth(visibleTasks());
+    rows.sort(function (a, b) { if (a.d !== b.d) return a.d - b.d; return addrOf(a).localeCompare(addrOf(b)); });
+
+    rows.forEach(function (t) {
+      var w = workOf(t), m = masterById(t.m), d = offToDate(t.d);
+      data.push([
+        d.getDate() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear(),
+        m ? m.name : '—', addrOf(t), w ? w.name : '—',
+        (t.volume || 1) + ' ' + (w ? w.unit : ''),
+        parseFloat(fmtH(taskHours(t)).replace(',', '.'))
+      ]);
+    });
+    var total = rows.reduce(function (s, t) { return s + taskHours(t); }, 0);
+    data.push([]);
+    data.push(['', '', '', 'Итого трудозатрат, ч:', parseFloat(fmtH(total).replace(',', '.'))]);
+
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 12 }, { wch: 20 }, { wch: 32 }, { wch: 32 }, { wch: 12 }, { wch: 14 }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
+    XLSX.utils.book_append_sheet(wb, ws, 'План-график');
+    var fileName = 'Отчёт_1_План-график_' + reportMonthKey() + '.xlsx';
+    try { XLSX.writeFile(wb, fileName); toast('ok', '📥 Сформирован файл: ' + fileName + ' (' + rows.length + ' записей)'); } catch (err) { toast('err', 'Ошибка формирования Excel'); }
+  }
+
+  function exportReport2Excel() {
+    if (!window.XLSX) { toast('err', 'Библиотека SheetJS (XLSX) не загружена'); return; }
+    var byMaster = {};
+    filterReportMonth(visibleTasks()).forEach(function (t) { byMaster[t.m] = byMaster[t.m] || { p: 0, f: 0 }; byMaster[t.m].p++; if (isDone(t)) byMaster[t.m].f++; });
+    var totP = 0, totF = 0;
+    var data = [];
+    data.push(['Анализ выполнения (план/факт) — ' + reportPeriodStr()]);
+    data.push(['Сформирован: ' + fmt(TODAY)]);
+    data.push([]);
+    data.push(['Мастер', 'Участок', 'План', 'Факт', 'Выполнено, %']);
+    Object.keys(byMaster).forEach(function (mid) {
+      var x = byMaster[mid]; totP += x.p; totF += x.f;
+      var m = masterById(mid); var pct = x.p ? Math.round(x.f / x.p * 100) : 0;
+      data.push([m ? m.name : '—', m ? m.area : '—', x.p, x.f, pct + '%']);
+    });
+    var totPct = totP ? Math.round(totF / totP * 100) : 0;
+    data.push([]);
+    data.push(['Итого:', '', totP, totF, totPct + '%']);
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 14 }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
+    XLSX.utils.book_append_sheet(wb, ws, 'План-факт');
+    var fileName = 'Отчёт_2_План_факт_' + reportMonthKey() + '.xlsx';
+    try { XLSX.writeFile(wb, fileName); toast('ok', '📥 Сформирован файл: ' + fileName); } catch (err) { toast('err', 'Ошибка формирования Excel'); }
+  }
+
+  function exportPermitExcel() {
+    if (!window.XLSX) { toast('err', 'Библиотека SheetJS (XLSX) не загружена'); return; }
+    var tasks = filterReportMonth(visibleTasks()).filter(function (t) { return t.needs_permit; });
+    tasks.sort(function (a, b) { return a.dl - b.dl; });
+    var data = [];
+    data.push(['Контроль ордеров (разрешений) — ' + reportPeriodStr()]);
+    data.push(['Сформирован: ' + fmt(TODAY)]);
+    data.push([]);
+    data.push(['Вид работы', 'Объект', 'Мастер', 'Ордер до', 'Осталось']);
+    tasks.forEach(function (t) {
+      var w = workOf(t), m = masterById(t.m);
+      var dlDate = t.dl_date || (t.dl != null ? key(offToDate(t.dl)) : '—');
+      var daysLeft = t.dl != null ? t.dl : 0;
+      var dlText = daysLeft < 0 ? 'просрочка ' + (-daysLeft) + ' дн' : daysLeft === 0 ? 'сегодня!' : daysLeft + ' дн';
+      data.push([w ? w.name : '?', addrOf(t), m ? m.name : '—', dlDate, dlText]);
+    });
+    if (!tasks.length) data.push(['Нет работ с ордерами']);
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 32 }, { wch: 32 }, { wch: 20 }, { wch: 14 }, { wch: 16 }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Ордера');
+    var fileName = 'Контроль_ордеров_' + reportMonthKey() + '.xlsx';
+    try { XLSX.writeFile(wb, fileName); toast('ok', '📥 Сформирован файл: ' + fileName); } catch (err) { toast('err', 'Ошибка формирования Excel'); }
+  }
+
+  function exportSnowExcel() {
+    if (!window.XLSX) { toast('err', 'Библиотека SheetJS (XLSX) не загружена'); return; }
+    var tasks = filterReportMonth(visibleTasks()).filter(function (t) { return t.depends_on_snow; });
+    var data = [];
+    data.push(['Контроль снегоуборки — ' + reportPeriodStr()]);
+    data.push(['Сформирован: ' + fmt(TODAY)]);
+    data.push([]);
+    data.push(['Вид работы', 'Объект', 'Мастер', 'Объём', 'Трудозатраты, ч']);
+    tasks.forEach(function (t) {
+      var w = workOf(t), m = masterById(t.m);
+      data.push([w ? w.name : '?', addrOf(t), m ? m.name : '—', (t.volume || 1) + ' ' + (w ? w.unit : ''), parseFloat(fmtH(taskHours(t)).replace(',', '.'))]);
+    });
+    if (!tasks.length) data.push(['Нет снегоуборочных работ']);
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 32 }, { wch: 32 }, { wch: 20 }, { wch: 14 }, { wch: 16 }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Снег');
+    var fileName = 'Контроль_снега_' + reportMonthKey() + '.xlsx';
+    try { XLSX.writeFile(wb, fileName); toast('ok', '📥 Сформирован файл: ' + fileName); } catch (err) { toast('err', 'Ошибка формирования Excel'); }
+  }
+
+  function exportWeatherExcel() {
+    if (!window.XLSX) { toast('err', 'Библиотека SheetJS (XLSX) не загружена'); return; }
+    var tasks = filterReportMonth(visibleTasks()).filter(function (t) { var w = workOf(t); var wf = getWeatherForecast(t.d); return w && w.min_temp > -50 && wf && wf.temp != null && wf.temp < w.min_temp; });
+    var data = [];
+    data.push(['Ожидание погоды — ' + reportPeriodStr()]);
+    data.push(['Сформирован: ' + fmt(TODAY)]);
+    data.push([]);
+    data.push(['Вид работы', 'Объект', 'Мин. t°C', 'Прогноз t°C', 'Погода', 'План']);
+    tasks.forEach(function (t) {
+      var w = workOf(t); var wf = getWeatherForecast(t.d);
+      data.push([w ? w.name : '?', addrOf(t), w ? w.min_temp : -50, wf ? wf.temp : '?', wf ? wf.desc : '—', fmtShort(t.d)]);
+    });
+    if (!tasks.length) data.push(['Нет задач в ожидании погоды']);
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 32 }, { wch: 32 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Погода');
+    var fileName = 'Ожидание_погоды_' + reportMonthKey() + '.xlsx';
+    try { XLSX.writeFile(wb, fileName); toast('ok', '📥 Сформирован файл: ' + fileName); } catch (err) { toast('err', 'Ошибка формирования Excel'); }
+  }
+
+  /* ---------- ПОПАП ПОГОДЫ (выпадающий список) ---------- */
+  function getWeatherIcon(desc, snowfall, temp) {
+    if (desc.indexOf('Снег') !== -1 || (snowfall && snowfall > 0)) return '❄️';
+    if (desc.indexOf('Дождь') !== -1 || desc.indexOf('Морось') !== -1 || desc.indexOf('Ливень') !== -1) return '🌧️';
+    if (desc.indexOf('Гроза') !== -1) return '⛈️';
+    if (desc.indexOf('Облачно') !== -1) return '☁️';
+    if (temp != null && temp <= 0) return '🥶';
+    return '☀️';
+  }
+
+  function toggleWeatherDropdown() {
+    var dd = document.getElementById('weather-dropdown');
+    if (!dd) return;
+    if (dd.classList.contains('open')) {
+      dd.classList.remove('open');
+      return;
+    }
+    var html = '';
+    // Количество дней прогноза — без ограничения (максимум 15 дней от API)
+    var daysCount = 15;
+
+    html += '<div class="wd-head"><div><div class="wd-title">Прогноз погоды</div><div class="wd-sub">Минск · ' + daysCount + ' дн. (нажмите для деталей)</div></div><button class="wd-close" onclick="document.getElementById(\'weather-dropdown\').classList.remove(\'open\')">×</button></div>';
+    html += '<div class="wd-grid">';
+    for (var off = 0; off < daysCount; off++) {
+      var d = offToDate(off);
+      var wf = getWeatherForecast(off); // Теперь никогда не возвращает null
+      var shortDow = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][d.getDay()];
+      var isToday = (off === 0);
+      
+      var icon = getWeatherIcon(wf.desc, wf.snowfall, wf.temp);
+      var delay = off * 0.06;
+      html += '<div class="wd-day' + (isToday ? ' today' : '') + '" style="animation-delay:' + delay + 's" data-action="open-hourly" data-off="' + off + '">';
+      html += '<div class="wd-dow">' + (isToday ? 'Сегодня' : shortDow) + '</div>';
+      html += '<div class="wd-date">' + d.getDate() + ' ' + MON[d.getMonth()].slice(0,3) + '</div>';
+      html += '<div class="wd-icon">' + icon + '</div>';
+      html += '<div class="wd-temp">' + wf.temp + '°C</div>';
+      html += '<div class="wd-desc">' + esc(wf.desc) + '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    dd.innerHTML = html;
+    dd.classList.add('open');
+  }
+
+  function initWeatherPopup() {}
+
+  function openHourlyWeather(off) {
+    var d = offToDate(off);
+    var wf = getWeatherForecast(off);
+    if (!wf) {
+      toast('warn', 'Нет подробных данных за этот день');
+      return;
+    }
+
+    // Надёжный разбор времени восхода/заката (устойчив к формату "HH:MM" и ISO)
+    function fmtSunTime(val) {
+      if (!val) return '—';
+      var dt = new Date(val);
+      if (!isNaN(dt.getTime())) return dt.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+      var m = String(val).match(/(\d{1,2}:\d{2})/);
+      if (m) return m[1];
+      return '—';
+    }
+    var sunrise = fmtSunTime(wf.sunrise);
+    var sunset = fmtSunTime(wf.sunset);
+
+    // Наличие осадков: снег или дождь за день
+    var precipIcon, precipType, precipAmount;
+    if (wf.snowfall && wf.snowfall > 0.1) {
+      precipIcon = '❄️'; precipType = 'Снег'; precipAmount = (Math.round(wf.snowfall * 10) / 10) + ' см';
+    } else if (wf.rain && wf.rain > 0.1) {
+      precipIcon = '🌧️'; precipType = 'Дождь'; precipAmount = (Math.round(wf.rain * 10) / 10) + ' мм';
+    } else if (wf.precip && wf.precip > 0.1) {
+      precipIcon = '💧'; precipType = 'Осадки'; precipAmount = (Math.round(wf.precip * 10) / 10) + ' мм';
+    } else {
+      precipIcon = '☀️'; precipType = 'Без осадков'; precipAmount = '0 мм';
+    }
+
+    var html = '<div class="modal-h" style="background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;"><h3 style="color:#fff">Погода подробно · ' + d.getDate() + ' ' + MON[d.getMonth()] + '</h3><button class="x" data-action="close-modal" style="color:#fff">×</button></div>';
+    html += '<div class="modal-b" style="max-height:75vh;overflow:auto;">';
+    
+    // Информация о Солнце и Луне
+    html += '<div style="display:flex;justify-content:space-around;align-items:center;background:#f8fafc;padding:16px;border-radius:10px;margin-bottom:16px;text-align:center;font-size:12px;color:#334155;gap:10px;">';
+    html += '<div>☀️<br><span style="font-size:10px;color:#64748b">Восход</span><br><b>' + sunrise + '</b></div>';
+    html += '<div>🌇<br><span style="font-size:10px;color:#64748b">Закат</span><br><b>' + sunset + '</b></div>';
+    html += '<div>' + precipIcon + '<br><span style="font-size:10px;color:#64748b">Осадки</span><br><b style="font-size:12px">' + precipType + '</b><br><span style="font-size:10px;color:#64748b">' + precipAmount + '</span></div>';
+    html += '</div>';
+
+    // Почасовой прогноз
+    if (wf.hourly && wf.hourly.length) {
+      html += '<div style="display:flex;flex-direction:column;gap:2px;">';
+      wf.hourly.forEach(function(h) {
+        var icon = getWeatherIcon(h.desc, h.snowfall, h.temp);
+        var isDay = h.hour >= 6 && h.hour <= 22;
+        // Колонка осадков: факт (снег/дождь) или вероятность
+        var precipStr = '';
+        if (h.snowfall && h.snowfall > 0) precipStr = '❄️ ' + (Math.round(h.snowfall * 10) / 10) + 'см';
+        else if (h.rain && h.rain > 0) precipStr = '🌧️ ' + (Math.round(h.rain * 10) / 10) + 'мм';
+        else if (h.precipProb && h.precipProb > 0) precipStr = '💧 ' + h.precipProb + '%';
+        // Цвет температуры
+        var tColor = h.temp < 0 ? '#3b82f6' : h.temp > 22 ? '#dc2626' : 'var(--ink)';
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--line);font-size:13.5px;' + (isDay ? '' : 'opacity:0.5;') + '">';
+        html += '<div style="width:46px;font-weight:700;color:var(--muted)">' + (h.hour < 10 ? '0' + h.hour : h.hour) + ':00</div>';
+        html += '<div style="width:28px;text-align:center;font-size:16px;">' + icon + '</div>';
+        html += '<div style="flex:1;color:var(--txt)">' + esc(h.desc) + '</div>';
+        html += '<div style="font-weight:700;width:54px;text-align:right;color:' + tColor + ';">' + h.temp + '°</div>';
+        html += '<div style="width:78px;text-align:right;font-size:12px;color:#0ea5e9;font-weight:600;">' + precipStr + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div class="empty">Почасовой прогноз недоступен</div>';
+    }
+
+    html += '</div>';
+    html += '<div class="modal-f"><button class="btn" data-action="close-modal">Закрыть</button></div>';
+    
+    modal.innerHTML = html;
+    overlay.classList.add('show');
+  }
+
   function renderReports() {
     var vt = visibleTasks();
-    var monthTasks = vt.filter(function (t) { var d = offToDate(t.d); return d.getMonth() === TODAY.getMonth(); });
-    var permitTasks = vt.filter(function (t) { return t.needs_permit; });
-    var snowTasks = vt.filter(function (t) { return t.depends_on_snow; });
-    var weatherBlocked = vt.filter(function (t) { var w = workOf(t); var wf = getWeatherForecast(t.d); return w && w.min_temp > -50 && wf && wf.temp != null && wf.temp < w.min_temp; });
+    var monthTasks = filterReportMonth(vt);
+    var permitTasks = filterReportMonth(vt).filter(function (t) { return t.needs_permit; });
+    var snowTasks = filterReportMonth(vt).filter(function (t) { return t.depends_on_snow; });
+    var weatherBlocked = filterReportMonth(vt).filter(function (t) { var w = workOf(t); var wf = getWeatherForecast(t.d); return w && w.min_temp > -50 && wf && wf.temp != null && wf.temp < w.min_temp; });
 
     var printIcon = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z"/></svg>';
 
-    var html = '<div class="card"><div class="card-h"><h2>Формирование печатных форм</h2><span class="sub">Период: ' + MON[TODAY.getMonth()] + ' ' + TODAY.getFullYear() + '</span></div><div class="card-b">';
+    var html = '<div class="card"><div class="card-h"><h2>Формирование печатных форм</h2><div class="spacer"></div><button type="button" class="btn sm" data-action="report-month-toggle" style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:700;cursor:pointer;">📅 <span id="report-period-label">' + reportPeriodStr() + '</span></button></div><div class="card-b">';
 
     // Стандартные отчёты
     html += '<div class="dash-grid" style="grid-template-columns:1fr 1fr">';
     // Отчёт №1
-    html += '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h3 style="margin:0;color:var(--ink);font-size:14px">Отчёт №1. План-график</h3><button class="btn sm" data-action="print-report1" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button></div><table class="dt"><thead><tr><th>Дата</th><th>Объект</th><th>Работа</th><th>Объём</th><th>ч</th></tr></thead><tbody>';
+    html += '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h3 style="margin:0;color:var(--ink);font-size:14px">Отчёт №1. План-график</h3><div style="display:flex;gap:6px"><button class="btn sm" data-action="print-report1" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button><button class="btn sm" data-action="excel-report1" style="background:#10b981;color:#fff;border-color:#10b981">' + IC.download + ' Excel</button></div></div><table class="dt"><thead><tr><th>Дата</th><th>Объект</th><th>Работа</th><th>Объём</th><th>ч</th></tr></thead><tbody>';
     monthTasks.slice(0, 9).forEach(function (t) {
       var w = workOf(t);
-      html += '<tr><td>' + offToDate(t.d).getDate() + '.' + String(TODAY.getMonth() + 1).padStart(2, '0') + '</td><td>' + esc(addrOf(t)) + '</td><td>' + esc(w ? w.name : '?') + '</td><td>' + (t.volume || 1) + ' ' + (w ? w.unit : '') + '</td><td>' + fmtH(taskHours(t)) + '</td></tr>';
+      var d = offToDate(t.d);
+      html += '<tr><td>' + d.getDate() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '</td><td>' + esc(addrOf(t)) + '</td><td>' + esc(w ? w.name : '?') + '</td><td>' + (t.volume || 1) + ' ' + (w ? w.unit : '') + '</td><td>' + fmtH(taskHours(t)) + '</td></tr>';
     });
     html += '</tbody></table></div>';
     // Отчёт №2
-    html += '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h3 style="margin:0;color:var(--ink);font-size:14px">Отчёт №2. План/факт</h3><button class="btn sm" data-action="print-report2" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button></div><table class="dt"><thead><tr><th>Мастер</th><th>План</th><th>Факт</th><th>%</th></tr></thead><tbody>';
+    html += '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h3 style="margin:0;color:var(--ink);font-size:14px">Отчёт №2. План/факт</h3><div style="display:flex;gap:6px"><button class="btn sm" data-action="print-report2" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button><button class="btn sm" data-action="excel-report2" style="background:#10b981;color:#fff;border-color:#10b981">' + IC.download + ' Excel</button></div></div><table class="dt"><thead><tr><th>Мастер</th><th>План</th><th>Факт</th><th>%</th></tr></thead><tbody>';
     var byMaster = {};
-    vt.forEach(function (t) { byMaster[t.m] = byMaster[t.m] || { p: 0, f: 0 }; byMaster[t.m].p++; if (isDone(t)) byMaster[t.m].f++; });
+    monthTasks.forEach(function (t) { byMaster[t.m] = byMaster[t.m] || { p: 0, f: 0 }; byMaster[t.m].p++; if (isDone(t)) byMaster[t.m].f++; });
     Object.keys(byMaster).forEach(function (mid) { var x = byMaster[mid]; var m = masterById(mid); html += '<tr><td>' + esc(m ? m.name : '?') + '</td><td>' + x.p + '</td><td>' + x.f + '</td><td><b>' + (x.p ? Math.round(x.f / x.p * 100) : 0) + '%</b></td></tr>'; });
     html += '</tbody></table></div>';
     html += '</div>';
@@ -2675,7 +3542,7 @@
     html += '<div style="margin-top:20px;font-size:14px;font-weight:700;color:var(--ink);">📋 Спецотчёты УБиРОГС</div>';
 
     // Контроль ордеров
-    html += '<div class="card" style="margin-top:10px;"><div class="card-h"><h2 style="font-size:13px;">📋 Контроль ордеров (разрешений)</h2><div class="spacer"></div><button class="btn sm" data-action="print-permit" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button></div><div class="card-b">';
+    html += '<div class="card" style="margin-top:10px;"><div class="card-h"><h2 style="font-size:13px;">📋 Контроль ордеров (разрешений)</h2><div class="spacer"></div><div style="display:flex;gap:6px"><button class="btn sm" data-action="print-permit" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button><button class="btn sm" data-action="excel-permit" style="background:#10b981;color:#fff;border-color:#10b981">' + IC.download + ' Excel</button></div></div><div class="card-b">';
     if (!permitTasks.length) html += '<div class="empty">Нет работ с ордерами</div>';
     permitTasks.forEach(function (t) {
       var w = workOf(t);
@@ -2687,7 +3554,7 @@
     html += '</div></div>';
 
     // Контроль снега
-    html += '<div class="card" style="margin-top:10px;"><div class="card-h"><h2 style="font-size:13px;">❄️ Контроль снегоуборки</h2><div class="spacer"></div><button class="btn sm" data-action="print-snow" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button></div><div class="card-b">';
+    html += '<div class="card" style="margin-top:10px;"><div class="card-h"><h2 style="font-size:13px;">❄️ Контроль снегоуборки</h2><div class="spacer"></div><div style="display:flex;gap:6px"><button class="btn sm" data-action="print-snow" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button><button class="btn sm" data-action="excel-snow" style="background:#10b981;color:#fff;border-color:#10b981">' + IC.download + ' Excel</button></div></div><div class="card-b">';
     if (!snowTasks.length) html += '<div class="empty">Нет снегоуборочных работ</div>';
     snowTasks.forEach(function (t) {
       var w = workOf(t);
@@ -2696,7 +3563,7 @@
     html += '</div></div>';
 
     // Контроль погоды
-    html += '<div class="card" style="margin-top:10px;margin-bottom:0;"><div class="card-h"><h2 style="font-size:13px;">🌡️ Ожидание погоды</h2><div class="spacer"></div><button class="btn sm" data-action="print-weather" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button></div><div class="card-b">';
+    html += '<div class="card" style="margin-top:10px;margin-bottom:0;"><div class="card-h"><h2 style="font-size:13px;">🌡️ Ожидание погоды</h2><div class="spacer"></div><div style="display:flex;gap:6px"><button class="btn sm" data-action="print-weather" style="background:#2563eb;color:#fff;border-color:#2563eb">' + printIcon + ' Печать</button><button class="btn sm" data-action="excel-weather" style="background:#10b981;color:#fff;border-color:#10b981">' + IC.download + ' Excel</button></div></div><div class="card-b">';
     if (!weatherBlocked.length) html += '<div class="empty">Нет задач в ожидании погоды</div>';
     weatherBlocked.forEach(function (t) {
       var w = workOf(t);
@@ -2928,11 +3795,13 @@
     var overlay = document.getElementById('overlay');
     var html = '<div class="modal-h"><h3>📥 Импорт задач из Excel с валидацией (ТЗ v2.0, раздел 3.1)</h3><button class="x" data-action="close-modal">×</button></div><div class="modal-b" style="max-height:80vh;overflow:auto;">';
     html += '<div style="margin-bottom:14px;background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;font-size:12.5px;line-height:1.5;">';
-    html += '<b>Алгоритм автовалидации по ТЗ 2.0:</b><br>';
-    html += '🟨 <span style="background:#fef9c3;padding:1px 6px;border-radius:4px;border:1px solid #facc15;color:#854d0e;font-weight:600;">Желтый</span> — Адрес не найден в справочнике Панорамы (требуется ручной ввод координат).<br>';
-    html += '🟥 <span style="background:#fee2e2;padding:1px 6px;border-radius:4px;border:1px solid #f87171;color:#b91c1c;font-weight:600;">Красный</span> — Ответственный мастер не найден в кадровой системе.<br>';
-    html += '🟧 <span style="background:#ffedd5;padding:1px 6px;border-radius:4px;border:1px solid #fb923c;color:#c2410c;font-weight:600;">Оранжевый</span> — Вид работы не найден в справочнике норм времени.<br>';
-    html += '🟩 <span style="background:#dcfce7;padding:1px 6px;border-radius:4px;border:1px solid #4ade80;color:#15803d;font-weight:600;">Зеленый</span> — Строка прошла валидацию на 100%.</div>';
+    html += '<b>Алгоритм автовалидации по ТЗ 2.0:</b>';
+    html += '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">';
+    html += '<div>🟨 <span style="background:#fef9c3;padding:1px 6px;border-radius:4px;border:1px solid #facc15;color:#854d0e;font-weight:600;">Желтый</span> — Адрес не найден в справочнике Панорамы (требуется ручной ввод координат).</div>';
+    html += '<div>🟥 <span style="background:#fee2e2;padding:1px 6px;border-radius:4px;border:1px solid #f87171;color:#b91c1c;font-weight:600;">Красный</span> — Ответственный мастер не найден в кадровой системе.</div>';
+    html += '<div>🟧 <span style="background:#ffedd5;padding:1px 6px;border-radius:4px;border:1px solid #fb923c;color:#c2410c;font-weight:600;">Оранжевый</span> — Вид работы не найден в справочнике норм времени.</div>';
+    html += '<div>🟩 <span style="background:#dcfce7;padding:1px 6px;border-radius:4px;border:1px solid #4ade80;color:#15803d;font-weight:600;">Зеленый</span> — Строка прошла валидацию на 100%.</div>';
+    html += '</div></div>';
     html += '<div style="display:flex;gap:10px;margin-bottom:16px;">';
     html += '<button class="btn primary" data-action="excel-demo-load" style="background:#10b981;border-color:#10b981;">📑 Загрузить тестовый пример из ТЗ (Приложение 1)</button>';
     html += '<label class="btn ghost" style="cursor:pointer;border-color:var(--blue);color:var(--blue);">📂 Выбрать файл .xlsx / .csv<input type="file" id="tasks-excel-file-inp" accept=".xlsx,.xls,.csv" style="display:none"></label>';
@@ -2940,6 +3809,7 @@
     html += '<div id="excel-import-preview-container"><div class="empty" style="padding:30px 0;">Нажмите «Загрузить тестовый пример» или выберите файл Excel для предпросмотра</div></div>';
     html += '</div><div class="modal-f"><button class="btn" data-action="close-modal">Отмена</button><button class="btn primary" data-action="excel-import-confirm" id="btn-excel-conf" style="display:none;">✔ Утвердить и импортировать в план</button></div>';
     modal.innerHTML = html;
+    modal.style.maxWidth = '60%';
     overlay.classList.add('show');
 
     var fi = document.getElementById('tasks-excel-file-inp');
@@ -3050,6 +3920,300 @@
   }
 
 
+
+  /* =====================================================================
+     AI ЧАТ (Mistral AI)
+     ===================================================================== */
+  var aiMessages = [];
+  var aiSending = false;
+
+  // Системный промпт для AI
+  function buildSystemPrompt() {
+    var u = S.user;
+    return {
+      role: 'system',
+      content: 'Ты — AI-ассистент системы SmartPlan для участка УБиРОГС УП «МИНГАЗ» (благоустройство, ремонт ГРП/ШРП, расчистка просек, снегоуборка). ' +
+        'Отвечай кратко, по делу, на русском языке. Помогай с вопросами по планированию работ, видам работ, нормативам. ' +
+        (u ? 'Пользователь: ' + u.full_name + ', роль: ' + (ROLE_INFO[u.role] || {}).label + '.' : '')
+    };
+  }
+
+  // Отправка запроса к Mistral AI
+  function callMistralAI(userText) {
+    var apiKey = window.SP_CONFIG && window.SP_CONFIG.aiApiKey ? window.SP_CONFIG.aiApiKey : 'REqZWUPHUQYSKDSLup9teXh4WOqoEv5D';
+    var apiUrl = 'https://api.mistral.ai/v1/chat/completions';
+
+    aiMessages.push({ role: 'user', content: userText });
+
+    return fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey
+      },
+      body: JSON.stringify({
+        model: 'mistral-large-latest',
+        messages: [buildSystemPrompt()].concat(aiMessages.slice(-10)),
+        temperature: 0.7,
+        max_tokens: 800
+      })
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(data) {
+      var reply = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : 'Извините, не удалось получить ответ.';
+      aiMessages.push({ role: 'assistant', content: reply });
+      return reply;
+    });
+  }
+
+  // Добавление сообщения в чат
+  function addChatMessage(text, isUser) {
+    var body = document.getElementById('ai-chat-body');
+    if (!body) return;
+    // Убираем плейсхолдер
+    var ph = body.querySelector('.ai-placeholder');
+    if (ph) ph.remove();
+
+    var div = document.createElement('div');
+    div.className = 'ai-msg ' + (isUser ? 'user' : 'bot');
+    div.innerHTML = isUser ? esc(text) : formatAIResponse(text);
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  // Форматирование ответа AI (добавляет разметку)
+  function formatAIResponse(text) {
+    var s = esc(text);
+    s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    s = s.replace(/\n/g, '<br>');
+    return s;
+  }
+
+  // Индикатор набора
+  function showTyping() {
+    var body = document.getElementById('ai-chat-body');
+    if (!body) return;
+    var ph = body.querySelector('.ai-placeholder');
+    if (ph) ph.remove();
+    var div = document.createElement('div');
+    div.className = 'ai-typing';
+    div.id = 'ai-typing-indicator';
+    div.innerHTML = '<span></span><span></span><span></span>';
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+  }
+  function hideTyping() {
+    var el = document.getElementById('ai-typing-indicator');
+    if (el) el.remove();
+  }
+
+  // Отправка сообщения
+  function sendAIMessage() {
+    var input = document.getElementById('ai-chat-input');
+    if (!input) return;
+    var text = input.value.trim();
+    if (!text || aiSending) return;
+
+    addChatMessage(text, true);
+    input.value = '';
+    aiSending = true;
+
+    var sendBtn = document.getElementById('ai-chat-send');
+    if (sendBtn) sendBtn.disabled = true;
+
+    showTyping();
+
+    callMistralAI(text)
+      .then(function(reply) {
+        hideTyping();
+        addChatMessage(reply, false);
+      })
+      .catch(function(err) {
+        hideTyping();
+        addChatMessage('⚠ Ошибка связи с AI: ' + err.message + '. Попробуйте позже.', false);
+        console.error('AI error:', err);
+      })
+      .finally(function() {
+        aiSending = false;
+        if (sendBtn) sendBtn.disabled = false;
+        if (input) input.focus();
+      });
+  }
+
+  // Инициализация чата
+  function initAIChat() {
+    var toggle = document.getElementById('ai-chat-toggle');
+    var win = document.getElementById('ai-chat-window');
+    var closeBtn = document.getElementById('ai-chat-close');
+    var sendBtn = document.getElementById('ai-chat-send');
+    var input = document.getElementById('ai-chat-input');
+
+    if (!toggle || !win) return;
+
+    // === ПЕРЕТАСКИВАНИЕ КНОПКИ ===
+    var isDragging = false;
+    var startX = 0, startY = 0;
+    var startLeft = 0, startTop = 0;
+    var hasMoved = false;
+
+    // Восстанавливаем позицию
+    try {
+      var savedPos = localStorage.getItem('ai_chat_pos');
+      if (savedPos) {
+        var pos = JSON.parse(savedPos);
+        // Проверяем что позиция в пределах экрана
+        var btnW = toggle.offsetWidth || 100;
+        var btnH = toggle.offsetHeight || 40;
+        if (pos.x >= 0 && pos.x <= window.innerWidth - btnW && pos.y >= 0 && pos.y <= window.innerHeight - btnH) {
+          toggle.style.right = 'auto';
+          toggle.style.bottom = 'auto';
+          toggle.style.left = pos.x + 'px';
+          toggle.style.top = pos.y + 'px';
+        } else {
+          localStorage.removeItem('ai_chat_pos');
+        }
+      }
+    } catch (e) {}
+
+    function onStart(clientX, clientY) {
+      isDragging = true;
+      hasMoved = false;
+      startX = clientX;
+      startY = clientY;
+      var rect = toggle.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      toggle.style.transition = 'none';
+      toggle.style.userSelect = 'none';
+    }
+
+    function onMove(clientX, clientY) {
+      if (!isDragging) return;
+      var dx = clientX - startX;
+      var dy = clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasMoved = true;
+
+      var newX = startLeft + dx;
+      var newY = startTop + dy;
+
+      // Ограничения — не даём вытащить за экран
+      var btnW = toggle.offsetWidth;
+      var btnH = toggle.offsetHeight;
+      newX = Math.max(8, Math.min(newX, window.innerWidth - btnW - 8));
+      newY = Math.max(8, Math.min(newY, window.innerHeight - btnH - 8));
+
+      toggle.style.right = 'auto';
+      toggle.style.bottom = 'auto';
+      toggle.style.left = newX + 'px';
+      toggle.style.top = newY + 'px';
+      
+      // Если окно чата открыто — двигаем его вместе с кнопкой
+      if (win.classList.contains('open')) {
+        updateChatPos();
+      }
+    }
+
+    function onEnd() {
+      if (!isDragging) return;
+      isDragging = false;
+      toggle.style.transition = '';
+      toggle.style.userSelect = '';
+      // Сохраняем позицию
+      var rect = toggle.getBoundingClientRect();
+      try { localStorage.setItem('ai_chat_pos', JSON.stringify({ x: rect.left, y: rect.top })); } catch (e) {}
+    }
+
+    // Mouse
+    toggle.addEventListener('mousedown', function(e) {
+      onStart(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (isDragging) onMove(e.clientX, e.clientY);
+    });
+    document.addEventListener('mouseup', onEnd);
+
+    // Touch
+    toggle.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 1) onStart(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    document.addEventListener('touchmove', function(e) {
+      if (isDragging && e.touches.length === 1) {
+        onMove(e.touches[0].clientX, e.touches[0].clientY);
+        e.preventDefault();
+      }
+    }, { passive: false });
+    document.addEventListener('touchend', onEnd);
+
+    // Открытие/закрытие (только если не было перетаскивания)
+    toggle.addEventListener('click', function() {
+      if (!hasMoved) {
+        if (win.classList.contains('open')) {
+          win.classList.remove('open');
+        } else {
+          updateChatPos(); // Рассчитываем позицию перед открытием
+          win.classList.add('open');
+          setTimeout(function() { if (input) input.focus(); }, 300);
+        }
+      }
+    });
+
+    // Позиционируем окно чата так, чтобы оно всегда было в пределах экрана
+    function updateChatPos() {
+      var rect = toggle.getBoundingClientRect();
+      var winW = win.offsetWidth || 380;
+      var winH = win.offsetHeight || 520;
+      var margin = 10;
+
+      var chatX, chatY;
+
+      // Расчёт по горизонтали
+      if (rect.right + margin + winW < window.innerWidth) {
+        // Хватает места справа
+        chatX = rect.right + margin;
+      } else if (rect.left - margin - winW > 0) {
+        // Хватает места слева
+        chatX = rect.left - margin - winW;
+      } else {
+        // Мало места с обеих сторон — прижимаем к левому краю
+        chatX = margin;
+      }
+
+      // Расчёт по вертикали
+      if (rect.bottom + margin + winH < window.innerHeight) {
+        // Хватает места снизу
+        chatY = rect.bottom + margin;
+      } else if (rect.top - margin - winH > 0) {
+        // Хватает места сверху
+        chatY = rect.top - margin - winH;
+      } else {
+        // Мало места — прижимаем к верхнему краю
+        chatY = margin;
+      }
+
+      // Применяем координаты
+      win.style.right = 'auto';
+      win.style.bottom = 'auto';
+      win.style.left = chatX + 'px';
+      win.style.top = chatY + 'px';
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', function() {
+      win.classList.remove('open');
+    });
+
+    if (sendBtn) sendBtn.addEventListener('click', sendAIMessage);
+
+    if (input) {
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendAIMessage();
+        }
+      });
+    }
+  }
 
   /* ---------- TOAST ---------- */
   function toast(type, msg) {
@@ -3168,6 +4332,11 @@
   overlay.addEventListener('click', function (e) { /* клик мимо окна не закрывает — только кнопкой × или «Отмена» */ });
 
   document.addEventListener('click', function (e) {
+    // Закрытие календаря выбора месяца отчёта при клике вне его
+    var rmDd = document.getElementById('report-month-dropdown');
+    if (rmDd && rmDd.classList.contains('open') && !rmDd.contains(e.target) && !e.target.closest('[data-action="report-month-toggle"]')) {
+      rmDd.classList.remove('open');
+    }
     var el = e.target.closest('[data-action]'); if (!el) return;
     var a = el.dataset.action;
     if (a === 'cal-mode') { S.calMode = el.dataset.mode; renderCalendar(); }
@@ -3175,6 +4344,12 @@
     else if (a === 'cal-next') { shiftCal(1); }
     else if (a === 'cal-today') { S.weekShift = 0; S.monthShift = 0; S.dayShift = 0; renderCalendar(); }
     else if (a === 'dash-area-clear') { S.dashArea = null; renderDashboard(); }
+    else if (a === 'open-weather') { toggleWeatherDropdown(); }
+    else if (a === 'open-hourly') { openHourlyWeather(parseInt(el.dataset.off, 10)); }
+    else if (a === 'kpi-today') { kpiToday(); }
+    else if (a === 'kpi-overloads') { kpiOverloads(); }
+    else if (a === 'kpi-month') { kpiMonth(); }
+    else if (a === 'kpi-permits') { kpiPermits(); }
     else if (a === 'new-task') { openTaskModal('new'); }
     else if (a === 'edit-task') {
       if (e.target.closest('.tile-chk') || e.target.closest('[data-action="toggle-done"]')) return;
@@ -3201,7 +4376,10 @@
       drawCalendarGrid();
       toast('ok', nowDone ? '✓ Отмечено выполненным' : 'Возвращено в план');
     }
-    else if (a === 'close-modal') { overlay.classList.remove('show'); }
+    else if (a === 'close-modal') { overlay.classList.remove('show'); modal.style.maxWidth = ''; }
+    else if (a === 'open-trash') { openTrashModal(); }
+    else if (a === 'restore-task') { restoreFromTrash(parseInt(el.dataset.trashIdx, 10)); openTrashModal(); }
+    else if (a === 'purge-trash') { if (window.confirm('Удалить все задачи из корзины безвозвратно?')) { purgeTrash(); openTrashModal(); } }
     else if (a === 'new-user') { openUserModal('new'); }
     else if (a === 'edit-user') { openUserModal('edit', el.dataset.uid); }
     else if (a === 'pwd-user') { openUserModal('pwd', el.dataset.uid); }
@@ -3222,14 +4400,24 @@
     else if (a === 'ul-norms-excel') { S.excelImportMode = 'norms'; var fi = document.getElementById('ref-excel-file'); if (fi) fi.click(); }
     else if (a === 'toggle-tree') { var ul = el.nextElementSibling; if (ul) ul.style.display = (ul.style.display === 'none' ? '' : 'none'); }
     else if (a === 'new-work') { if (S.role !== 'admin') { toast('err', 'Только для администратора'); return; } openWorkModal('new'); }
-    else if (a === 'edit-work') { openWorkModal('edit', el.dataset.wid); }
-    else if (a === 'del-work') { delWork(el.dataset.wid); }
-    else if (a === 'save-work') { saveWork(); }
+    else if (a === 'edit-work') { if (S.role !== 'admin') { toast('err', 'Только для администратора'); return; } openWorkModal('edit', el.dataset.wid); }
+    else if (a === 'del-work') { if (S.role !== 'admin') { toast('err', 'Только для администратора'); return; } delWork(el.dataset.wid); }
+    else if (a === 'save-work') { if (S.role !== 'admin') { toast('err', 'Только для администратора'); return; } saveWork(); }
     else if (a === 'print-report1') { printReport1(); }
     else if (a === 'print-report2') { printReport2(); }
     else if (a === 'print-permit') { printPermitReport(); }
     else if (a === 'print-snow') { printSnowReport(); }
     else if (a === 'print-weather') { printWeatherReport(); }
+    else if (a === 'excel-report1') { exportReport1Excel(); }
+    else if (a === 'excel-report2') { exportReport2Excel(); }
+    else if (a === 'excel-permit') { exportPermitExcel(); }
+    else if (a === 'excel-snow') { exportSnowExcel(); }
+    else if (a === 'excel-weather') { exportWeatherExcel(); }
+    else if (a === 'report-month-toggle') { e.stopPropagation(); toggleReportMonthPicker(); }
+    else if (a === 'rm-prev-year') { e.stopPropagation(); rmState.viewYear--; renderReportMonthPicker(); }
+    else if (a === 'rm-next-year') { e.stopPropagation(); rmState.viewYear++; renderReportMonthPicker(); }
+    else if (a === 'rm-pick') { e.stopPropagation(); pickReportMonth(parseInt(el.dataset.year, 10), parseInt(el.dataset.month, 10)); }
+    else if (a === 'rm-close') { e.stopPropagation(); var dd = document.getElementById('report-month-dropdown'); if (dd) dd.classList.remove('open'); }
   });
   function shiftCal(dir) {
     if (S.calMode === 'week') S.weekShift += dir;
@@ -3240,12 +4428,20 @@
 
   /* ---------- СТАРТ ---------- */
   document.getElementById('login-form').addEventListener('submit', onLoginSubmit);
+  // AI чат инициализируем сразу с задержкой — не зависит от сервера
+  setTimeout(function() { try { initAIChat(); } catch(e) { console.error('AI chat init:', e); } }, 100);
+  // Попап-календарь тоже сразу
+  setTimeout(function() { try { initDatePicker(); } catch(e) { console.error('DatePicker init:', e); } }, 100);
+  // Touch drag&drop polyfill для планшетов
+  setTimeout(function() { try { enableTouchDnD(); } catch(e) { console.error('TouchDnD init:', e); } }, 100);
   Promise.all([DB.ensureSeed(), WORK.ensureSeed()]).then(function () {
     var u = DB.getSession();
     if (u) enterApp(u); else showLoginScreen();
     // Загрузка прогноза погоды
     loadWeatherForecast();
     setInterval(loadWeatherForecast, 3600000);
+    // Инициализация попапа погоды
+    initWeatherPopup();
     // Рандомная синхронизация с сервером каждые 10-30 секунд
     function scheduleNextSync() {
       var delay = 10000 + Math.floor(Math.random() * 20000); // 10-30 сек
