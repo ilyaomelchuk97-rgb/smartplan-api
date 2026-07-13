@@ -461,7 +461,7 @@
      ===================================================================== */
   function openKpiPopup(title, color, bodyHtml) {
     var h = '<div class="modal-h" style="border-bottom:1px solid var(--line);background:' + color + ';color:#fff;"><h3 style="color:#fff">' + esc(title) + '</h3><button class="x" data-action="close-modal" style="color:#fff">×</button></div>';
-    h += '<div class="modal-b" style="max-height:65vh;overflow:auto;">';
+    h += '<div class="modal-b">';
     h += bodyHtml || '<div class="empty">Нет данных</div>';
     h += '</div>';
     h += '<div class="modal-f"><button class="btn" data-action="close-modal">Закрыть</button></div>';
@@ -854,7 +854,7 @@
     trash.sort(function(a, b) { return (b._deletedAt || 0) - (a._deletedAt || 0); });
 
     var html = '<div class="modal-h"><h3>🗑 Корзина</h3><button class="x" data-action="close-modal">×</button></div>';
-    html += '<div class="modal-b" style="max-height:70vh;overflow:auto;">';
+    html += '<div class="modal-b">';
 
     if (!trash.length) {
       html += '<div class="empty" style="padding:40px 20px;">Корзина пуста<br><span style="font-size:12px;">Удалённые задачи хранятся 14 дней</span></div>';
@@ -2796,7 +2796,7 @@
     var area = S.workArea;
     var w = mode === 'edit' ? WORK.getWork(area, wid) : null;
     var title = (mode === 'edit' ? 'Редактирование работы' : 'Новая работа') + ' · ' + area;
-    var h = '<div class="modal-h"><h3>' + esc(title) + '</h3><button class="x" data-action="close-modal">×</button></div><div class="modal-b" style="max-height:70vh;overflow:auto;">';
+    var h = '<div class="modal-h"><h3>' + esc(title) + '</h3><button class="x" data-action="close-modal">×</button></div><div class="modal-b">';
     h += '<div class="fld"><label>Группа работ</label><input id="wm-group" value="' + (w ? esc(w.group || '') : '') + '" placeholder="Напр.: Благоустройство"></div>';
     h += '<div class="fld"><label>Название работы</label><input id="wm-name" value="' + (w ? esc(w.name) : '') + '" placeholder="Напр.: Укладка асфальта"></div>';
     h += '<div class="attr-row"><div class="fld"><label>Норма времени, ч</label><input id="wm-norm" type="number" step="0.01" min="0" value="' + (w ? w.norm : '1') + '"></div>';
@@ -3467,7 +3467,7 @@
     }
 
     var html = '<div class="modal-h" style="background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;"><h3 style="color:#fff">Погода подробно · ' + d.getDate() + ' ' + MON[d.getMonth()] + '</h3><button class="x" data-action="close-modal" style="color:#fff">×</button></div>';
-    html += '<div class="modal-b" style="max-height:75vh;overflow:auto;">';
+    html += '<div class="modal-b">';
     
     // Информация о Солнце и Луне
     html += '<div style="display:flex;justify-content:space-around;align-items:center;background:#f8fafc;padding:16px;border-radius:10px;margin-bottom:16px;text-align:center;font-size:12px;color:#334155;gap:10px;">';
@@ -3605,7 +3605,7 @@
     var initMaster = (isEdit && t) ? t.m : (masters[0] ? masters[0].id : '');
     var initM2 = (isEdit && t && t.m2 != null) ? t.m2 : 100;
 
-    var html = '<div class="modal-h"><h3>' + title + '</h3><button class="x" data-action="close-modal">×</button></div><div class="modal-b" style="max-height:75vh;overflow:auto;">';
+    var html = '<div class="modal-h"><h3>' + title + '</h3><button class="x" data-action="close-modal">×</button></div><div class="modal-b">';
     html += '<div class="fld"><label>Объект (адрес)</label><input id="f-obj" value="' + esc(initAddr) + '" placeholder="ГРП-1, ул. Ленина, 5"></div>';
     html += '<div class="attr-row"><div class="fld"><label>Плановая дата</label><input id="f-day" type="date" value="' + initDate + '"></div>';
     html += '<div class="fld"><label id="f-dl-label">Дедлайн</label><input id="f-dl-date" type="date" value="' + (isEdit && t && t.dl_date ? t.dl_date : '') + '" placeholder="Дата"></div></div>';
@@ -3793,7 +3793,7 @@
   function openTasksExcelModal() {
     var modal = document.getElementById('modal');
     var overlay = document.getElementById('overlay');
-    var html = '<div class="modal-h"><h3>📥 Импорт задач из Excel с валидацией (ТЗ v2.0, раздел 3.1)</h3><button class="x" data-action="close-modal">×</button></div><div class="modal-b" style="max-height:80vh;overflow:auto;">';
+    var html = '<div class="modal-h"><h3>📥 Импорт задач из Excel с валидацией (ТЗ v2.0, раздел 3.1)</h3><button class="x" data-action="close-modal">×</button></div><div class="modal-b">';
     html += '<div style="margin-bottom:14px;background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;font-size:12.5px;line-height:1.5;">';
     html += '<b>Алгоритм автовалидации по ТЗ 2.0:</b>';
     html += '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">';
@@ -4308,10 +4308,33 @@
   }
   function refresh() {
     window.reRenderCurrentScreen = refresh;
+    // Мягкое обновление при синхронизации — только данные, без мигания экрана
+    window.onSyncUpdate = function() {
+      if (window.SP_TASKS) S.tasks = window.SP_TASKS.getTasks();
+      if (S.user) {
+        var fu = DB.getUser(S.user.id);
+        if (fu && fu.id === S.user.id) S.user = fu;
+      }
+      // Перезагружаем только данные текущего экрана без полной перестройки
+      // Обновляем только счётчик в бейдже и KPI, не трогая DOM целиком
+      var rzBadge = document.getElementById('rz-badge');
+      if (rzBadge) {
+        var redzone = visibleTasks().filter(function (t) { return !isDone(t) && (t.dl <= 2 || t.d < 0); });
+        rzBadge.textContent = redzone.length;
+      }
+      console.log('🔄 Данные обновлены мягко (без перерисовки)');
+    };
     var view = document.getElementById('view');
     if (view) view.style.padding = (S.screen === 'gmap') ? '0' : '';
     // Обновляем задания из БД, чтобы подхватить изменения с сервера (синхронизация)
     if (window.SP_TASKS) S.tasks = window.SP_TASKS.getTasks();
+    // Защита сессии: проверяем что текущий пользователь всё ещё активен
+    if (S.user) {
+      var freshUser = DB.getUser(S.user.id);
+      if (freshUser && freshUser.id === S.user.id) {
+        S.user = freshUser; // обновляем данные пользователя, но НЕ меняем сессию
+      }
+    }
     if (S.screen === 'dashboard') renderDashboard();
     else if (S.screen === 'calendar') renderCalendar();
     else if (S.screen === 'map') renderMap();
@@ -4434,9 +4457,16 @@
   setTimeout(function() { try { initDatePicker(); } catch(e) { console.error('DatePicker init:', e); } }, 100);
   // Touch drag&drop polyfill для планшетов
   setTimeout(function() { try { enableTouchDnD(); } catch(e) { console.error('TouchDnD init:', e); } }, 100);
+
+  // Восстанавливаем сессию НЕМЕДЛЕННО из localStorage — до серверных запросов
   Promise.all([DB.ensureSeed(), WORK.ensureSeed()]).then(function () {
     var u = DB.getSession();
-    if (u) enterApp(u); else showLoginScreen();
+    if (u) {
+      console.log('🔑 Сессия восстановлена:', u.login);
+      enterApp(u);
+    } else {
+      showLoginScreen();
+    }
     // Загрузка прогноза погоды
     loadWeatherForecast();
     setInterval(loadWeatherForecast, 3600000);
