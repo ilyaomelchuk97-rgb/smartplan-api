@@ -883,22 +883,40 @@
     var trash = getTrash();
     if (trashIdx < 0 || trashIdx >= trash.length) return;
     var task = trash[trashIdx];
-    delete task._deletedAt;
-    task.s = 'plan'; task.status = 'plan';
-    if (TASKS_DB) { TASKS_DB.addTask(task); S.tasks = TASKS_DB.getTasks(); }
-    else { S.tasks.push(task); }
     trash.splice(trashIdx, 1);
     saveTrash(trash);
-    drawCalendarGrid();
-    // Восстанавливаем на сервере
+
     var API = (window.SP_CONFIG && SP_CONFIG.serverUrl) || '';
+
+    // Сначала восстанавливаем на сервере, потом обновляем всё
+    var restorePromise;
     if (API && DB.isServerOnline()) {
-      fetch(API + '/api/trash/restore/' + task.id, {
+      restorePromise = fetch(API + '/api/trash/restore/' + task.id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'plan', s: 'plan', addr: task.addr, m: task.m, d: task.d, dl: task.dl, volume: task.volume })
+        body: JSON.stringify({ status: 'plan', s: 'plan', addr: task.addr || '', m: task.m || '', d: task.d || 0, dl: task.dl || 7, volume: task.volume || 1 })
       }).catch(function() {});
+    } else {
+      // Автономный режим — добавляем локально
+      task.s = 'plan'; task.status = 'plan';
+      delete task._deletedAt;
+      if (TASKS_DB) { TASKS_DB.addTask(task); S.tasks = TASKS_DB.getTasks(); }
+      restorePromise = Promise.resolve();
     }
+
+    restorePromise.then(function() {
+      // Полное обновление данных с сервера
+      if (DB.isServerOnline()) {
+        DB.syncFromServer().then(function() {
+          if (window.SP_TASKS) S.tasks = window.SP_TASKS.getTasks();
+          drawCalendarGrid();
+          openTrashModal();
+        });
+      } else {
+        drawCalendarGrid();
+        openTrashModal();
+      }
+    });
     toast('ok', '✅ Задача восстановлена из корзины');
   }
 
@@ -906,11 +924,27 @@
     var oldTrash = getTrash();
     saveTrash([]);
     var API = (window.SP_CONFIG && SP_CONFIG.serverUrl) || '';
+    var purgePromises = [];
     if (API && DB.isServerOnline()) {
       oldTrash.forEach(function(t) {
-        if (t.id) fetch(API + '/api/trash/' + t.id, { method: 'DELETE' }).catch(function() {});
+        if (t.id) {
+          purgePromises.push(fetch(API + '/api/trash/' + t.id, { method: 'DELETE' }).catch(function() {}));
+        }
       });
     }
+    // Ждём удаления с сервера, потом обновляем всё
+    Promise.all(purgePromises).then(function() {
+      if (DB.isServerOnline()) {
+        DB.syncFromServer().then(function() {
+          if (window.SP_TASKS) S.tasks = window.SP_TASKS.getTasks();
+          drawCalendarGrid();
+          openTrashModal();
+        });
+      } else {
+        drawCalendarGrid();
+        openTrashModal();
+      }
+    });
     toast('ok', '🗑 Корзина очищена');
   }
 
@@ -4463,8 +4497,8 @@
     }
     else if (a === 'close-modal') { overlay.classList.remove('show'); modal.style.maxWidth = ''; }
     else if (a === 'open-trash') { openTrashModal(); }
-    else if (a === 'restore-task') { restoreFromTrash(parseInt(el.dataset.trashIdx, 10)); openTrashModal(); }
-    else if (a === 'purge-trash') { if (window.confirm('Удалить все задачи из корзины безвозвратно?')) { purgeTrash(); openTrashModal(); } }
+    else if (a === 'restore-task') { restoreFromTrash(parseInt(el.dataset.trashIdx, 10)); }
+    else if (a === 'purge-trash') { if (window.confirm('Удалить все задачи из корзины безвозвратно?')) { purgeTrash(); } }
     else if (a === 'new-user') { openUserModal('new'); }
     else if (a === 'edit-user') { openUserModal('edit', el.dataset.uid); }
     else if (a === 'pwd-user') { openUserModal('pwd', el.dataset.uid); }
@@ -4534,8 +4568,9 @@
     setInterval(loadWeatherForecast, 3600000);
     // Инициализация попапа погоды
     initWeatherPopup();
-    // Фиксированная синхронизация каждые 10 секунд
+    // Динамическая синхронизация: 2 сек в календаре, 10 сек в остальных экранах
     function scheduleNextSync() {
+      var delay = (S.screen === 'calendar') ? 2000 : 10000;
       setTimeout(function() {
         if (DB.isServerOnline()) {
           DB.syncFromServer();
@@ -4545,7 +4580,7 @@
           });
         }
         scheduleNextSync(); // следующая итерация
-      }, 10000); // ровно 10 секунд
+      }, delay);
     }
     scheduleNextSync();
   }).catch(function (err) {
