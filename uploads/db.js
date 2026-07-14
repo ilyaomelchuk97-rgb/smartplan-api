@@ -151,9 +151,12 @@ window.SP_DB = (function () {
       console.log('✅ Синхронизация завершена');
       // Синхронизация НИКОГДА не меняет сессию — только данные
       try {
-        // Хэш учитывает не только количество, но и содержимое задач (позиции, статусы)
-        var tasksStr = window.SP_TASKS ? JSON.stringify(window.SP_TASKS.getTasks()) : '';
-        var newHash = tasksStr.length + ':' + (tasksStr.substring(0, 200) || '');
+        // Хэш ключевых полей ВСЕХ задач — ловит перемещение, статус, объём
+        var allTasks = window.SP_TASKS ? window.SP_TASKS.getTasks() : [];
+        var hashParts = allTasks.map(function(t) {
+          return t.id + ':' + t.d + ':' + t.m + ':' + (t.s || t.status) + ':' + (t.volume || 1) + ':' + (t.dl || '');
+        }).join('|');
+        var newHash = hashParts.length + ':' + hashParts;
         var changed = newHash !== lastSyncHash;
         lastSyncHash = newHash;
         if (changed && typeof window.onSyncUpdate === 'function') {
