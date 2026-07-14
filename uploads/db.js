@@ -151,10 +151,9 @@ window.SP_DB = (function () {
       console.log('✅ Синхронизация завершена');
       // Синхронизация НИКОГДА не меняет сессию — только данные
       try {
-        var newHash = JSON.stringify({
-          t: window.SP_TASKS ? window.SP_TASKS.getTasks() : [],
-          u: window.SP_USERS_DB ? window.SP_USERS_DB.getUsers() : []
-        }).length;
+        // Хэш учитывает не только количество, но и содержимое задач (позиции, статусы)
+        var tasksStr = window.SP_TASKS ? JSON.stringify(window.SP_TASKS.getTasks()) : '';
+        var newHash = tasksStr.length + ':' + (tasksStr.substring(0, 200) || '');
         var changed = newHash !== lastSyncHash;
         lastSyncHash = newHash;
         if (changed && typeof window.onSyncUpdate === 'function') {
