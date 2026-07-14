@@ -306,7 +306,7 @@ app.post('/api/objects', async (req, res) => {
 
 app.get('/api/tasks', async (req, res) => {
   try {
-    const result = await query('SELECT * FROM tasks ORDER BY d, m');
+    const result = await query("SELECT * FROM tasks WHERE status != 'deleted' AND s != 'deleted' ORDER BY d, m");
     const tasks = result.rows.map(t => ({
       id: t.id, addr: t.addr, o: t.o, w: t.w, works: t.works ? JSON.parse(t.works) : (t.w ? [t.w] : []),
       m: t.m, d: t.d, dl: t.dl, s: t.s, status: t.status,
