@@ -1830,97 +1830,100 @@
         toast("ok", "✓ Маршрут оптимизирован для 2ГИС! Нумерация и карточки обновлены.");
       });
     } else {
-      if (window.ymaps && window.ymaps.route) {
-        ensureYandex(function () {
-          window.ymaps.ready(function () {
-            var ref = [];
-            var baseStr = base.name.indexOf("Минск") !== -1 ? base.name : "Минск, " + base.name;
-            ref.push(baseStr);
-            tasks.forEach(function (p) {
-              var a = (p.addr || "").trim();
-              if (a && a !== "?") {
-                if (a.indexOf("Минск") === -1) a = "Минск, " + a;
-                ref.push(a);
-              } else if (p.lat != null && p.lng != null) {
-                ref.push([p.lat, p.lng]);
-              }
-            });
-            ref.push(baseStr);
-            try {
-              window.ymaps.route(ref, { routingMode: "auto", multiRoute: true, optimizeWaypoints: true, avoidTrafficJams: !!noJam }).then(function (route) {
-                clearTimeout(fallbackTimeoutId);
-                var waypoints = route.getWayPoints();
-                var yandexOrdered = [];
-                if (waypoints && typeof waypoints.each === "function") {
-                  var wpArray = [];
-                  waypoints.each(function (wp) { wpArray.push(wp); });
-                  for (var wIdx = 1; wIdx < wpArray.length - 1; wIdx++) {
-                    var wp = wpArray[wIdx];
-                    var origIdx = wp.properties.get("index");
-                    if (origIdx != null && origIdx >= 1 && origIdx <= tasks.length) {
-                      var origTask = tasks[origIdx - 1];
-                      if (yandexOrdered.indexOf(origTask) === -1) yandexOrdered.push(origTask);
-                    }
-                  }
-                }
-                if (yandexOrdered.length > 0) {
-                  if (yandexOrdered.length < tasks.length) {
-                    tasks.forEach(function (t) {
-                      if (yandexOrdered.indexOf(t) === -1) {
-                        for (var i = 0; i < yandexOrdered.length; i++) {
-                          if (yandexOrdered[i].addr === t.addr || (Math.abs(yandexOrdered[i].lat - t.lat) < 0.0001 && Math.abs(yandexOrdered[i].lng - t.lng) < 0.0001)) {
-                            yandexOrdered.splice(i + 1, 0, t);
-                            break;
-                          }
-                        }
-                        if (yandexOrdered.indexOf(t) === -1) yandexOrdered.push(t);
-                      }
-                    });
-                  }
-                  if (yandexOrdered.length === tasks.length) {
-                    ordered = yandexOrdered;
-                  }
-                }
-
-                var applied = applyYandexRouteStats(route, ordered, noJam);
-                updateDayListCards(ordered);
-
-                var finalItems = [base];
-                ordered.forEach(function (p) { finalItems.push(p); });
-                finalItems.push(base);
-
-                var initialKm = routeDistKm(finalItems) * 1.4;
-                getMultiRouteStatsAsync(route, function(stats) {
-                  if (stats && stats.km > 0) {
-                    setRouteInfo({ km: stats.km, jamsMin: stats.jamsMin, freeMin: stats.freeMin, count: ordered.length });
-                  }
-                });
-                var stats = extractYandexStats(route);
-                var totalKm = stats ? stats.km : initialKm;
-                var jamsMin = stats ? stats.jamsMin : calculateYandexMinskTime(totalKm, true);
-                var freeMin = stats ? stats.freeMin : calculateYandexMinskTime(totalKm, false);
-                if (totalKm > 0) setRouteInfo({ km: totalKm, jamsMin: jamsMin, freeMin: freeMin, count: ordered.length });
-                renderProviderFrame("yandex", finalItems, noJam);
-                toast("ok", "✓ Маршрут оптимизирован согласно Яндекс.Картам! Нумерация и карточки обновлены.");
-              }, function () {
-                clearTimeout(fallbackTimeoutId);
-                updateFallbackRouteInfo(ordered);
-                renderProviderFrame("yandex", routeItems, noJam);
-                toast("ok", "✓ Маршрут оптимизирован! Нумерация и карточки обновлены.");
-              });
-            } catch (e) {
-              clearTimeout(fallbackTimeoutId);
-              updateFallbackRouteInfo(ordered);
-              renderProviderFrame("yandex", routeItems, noJam);
-              toast("ok", "✓ Маршрут оптимизирован! Нумерация и карточки обновлены.");
+      // === Яндекс.Карты: реальная карта через JS API + MultiRoute ===
+      ensureYandex(function () {
+        window.ymaps.ready(function () {
+          var ref = [];
+          var baseStr = base.name.indexOf("Минск") !== -1 ? base.name : "Минск, " + base.name;
+          ref.push(baseStr);
+          tasks.forEach(function (p) {
+            var a = (p.addr || "").trim();
+            if (a && a !== "?") {
+              if (a.indexOf("Минск") === -1) a = "Минск, " + a;
+              ref.push(a);
+            } else if (p.lat != null && p.lng != null) {
+              ref.push([p.lat, p.lng]);
             }
           });
+          ref.push(baseStr);
+
+          // Создаём реальную карту вместо iframe
+          canvas.style.position = 'relative';
+          canvas.innerHTML = '<div id="ymap-canvas" style="position:absolute;inset:0;"></div>';
+          if (ymState.ymap) { try { ymState.ymap.destroy(); } catch(e) {} }
+
+          var map = new window.ymaps.Map('ymap-canvas', {
+            center: [53.9023, 27.5619], zoom: 12,
+            controls: ['routePanelControl', 'zoomControl']
+          });
+          ymState.ymap = map;
+
+          var multiRoute = new window.ymaps.multiRouter.MultiRoute({
+            referencePoints: ref,
+            params: { routingMode: 'auto', avoidTrafficJams: !!noJam }
+          }, { boundsAutoApply: true });
+
+          map.geoObjects.add(multiRoute);
+
+          multiRoute.model.events.add('requestsuccess', function () {
+            clearTimeout(fallbackTimeoutId);
+
+            // Порядок точек
+            var waypoints = multiRoute.getWayPoints();
+            var yandexOrdered = [];
+            if (waypoints && typeof waypoints.each === 'function') {
+              var wpArray = [];
+              waypoints.each(function (wp) { wpArray.push(wp); });
+              for (var wIdx = 1; wIdx < wpArray.length - 1; wIdx++) {
+                var origIdx = wpArray[wIdx].properties.get("index");
+                if (origIdx != null && origIdx >= 1 && origIdx <= tasks.length) {
+                  var origTask = tasks[origIdx - 1];
+                  if (yandexOrdered.indexOf(origTask) === -1) yandexOrdered.push(origTask);
+                }
+              }
+            }
+            if (yandexOrdered.length > 0) {
+              tasks.forEach(function (t) { if (yandexOrdered.indexOf(t) === -1) yandexOrdered.push(t); });
+              if (yandexOrdered.length === tasks.length) ordered = yandexOrdered;
+            }
+
+            var applied = applyYandexRouteStats(multiRoute, ordered, noJam);
+            updateDayListCards(ordered);
+            refreshMapCards(ordered);
+
+            // === ИЗВЛЕЧЕНИЕ ДАННЫХ ИЗ DOM ПАНЕЛИ МАРШРУТА ===
+            extractRouteDataFromDOM(canvas, function(domData) {
+              if (domData) {
+                setRouteInfo({ km: domData.km, jamsMin: domData.jamsMin, freeMin: domData.freeMin || domData.jamsMin, count: ordered.length });
+                toast("ok", "✓ Маршрут оптимизирован! Данные извлечены из виджета карты.");
+              } else {
+                // Fallback через API свойства
+                var stats = extractYandexStats(multiRoute);
+                if (stats && stats.km > 0) {
+                  setRouteInfo({ km: stats.km, jamsMin: stats.jamsMin, freeMin: stats.freeMin, count: ordered.length });
+                } else {
+                  updateFallbackRouteInfo(ordered);
+                }
+                toast("ok", "✓ Маршрут оптимизирован! Нумерация и карточки обновлены.");
+              }
+
+              // Панель со ссылкой
+              var dirUrl = buildYandexDirUrl(routeItems, noJam);
+              var lp = document.createElement('div');
+              lp.className = 'route-link-panel';
+              lp.innerHTML = '<span>🚩 <b>База</b> → ' + ordered.length + ' объектов (<b>Яндекс.Карты</b>) → <b>База</b></span><div class="route-actions"><a class="btn sm primary" target="_blank" rel="noopener" href="' + dirUrl + '" style="background:#10b981;border-color:#10b981;">↗ Открыть в Яндекс.Картах</a></div>';
+              canvas.appendChild(lp);
+            });
+          });
+
+          multiRoute.model.events.add('requestfail', function () {
+            clearTimeout(fallbackTimeoutId);
+            updateFallbackRouteInfo(ordered);
+            toast("warn", "⚠ Не удалось построить маршрут через Яндекс. Использованы приблизительные данные.");
+            renderProviderFrame("yandex", routeItems, noJam);
+          });
         });
-      } else {
-        clearTimeout(fallbackTimeoutId);
-        updateFallbackRouteInfo(ordered);
-        renderProviderFrame("yandex", routeItems, noJam);
-      }
+      });
     }
 
     function renderProviderFrame(pr, items, noJam) {
@@ -1939,77 +1942,199 @@
   }
   function buildYandexRoute(n) { buildRoute(n); }
 
-  // Извлекает общую дистанцию и время (с пробками и без) напрямую из объекта маршрута Яндекс.Карт (MultiRoute или обычного)
+  // Извлечение данных маршрута через multiRoute.model.getRoutes()[0].properties
+  // distance — в метрах, time — с пробками в секундах, timeWithoutTraffic — без пробок в секундах
+  // === Извлечение данных маршрута из DOM панели Яндекс.Карт ===
+  // Парсит км, время с пробками и без из HTML элементов виджета маршрута
+  function extractRouteDataFromDOM(container, callback) {
+    var attempts = 0;
+    var maxAttempts = 15; // 15 попыток по 500мс = 7.5 сек максимум
+
+    function tryExtract() {
+      attempts++;
+      // Ищем элементы с данными маршрута внутри контейнера карты
+      var allElements = container.querySelectorAll('*');
+      var kmVal = null, jamsText = null, freeText = null;
+
+      for (var i = 0; i < allElements.length; i++) {
+        var el = allElements[i];
+        var text = (el.textContent || '').trim();
+        if (!text || text.length > 100) continue;
+
+        // Расстояние: "15,2 км" или "15.2 км"
+        if (kmVal === null) {
+          var kmMatch = text.match(/^([\d.,]+)\s*км$/i);
+          if (kmMatch) {
+            kmVal = parseFloat(kmMatch[1].replace(',', '.'));
+          }
+        }
+
+        // Время: "42 мин", "1 ч 15 мин", "1 ч"
+        if (jamsText === null && text.match(/^[\d]+\s*(ч|min|мин)/i) && !text.match(/без/i)) {
+          // Проверяем что это не подпись
+          if (text.match(/^\d/) && (text.indexOf('мин') !== -1 || text.indexOf('ч') !== -1)) {
+            if (jamsText === null) jamsText = text;
+          }
+        }
+
+        // Время без пробок: обычно рядом или с пометкой
+        if (freeText === null && text.match(/^[\d]+\s*(ч|min|мин)/i) && !text.match(/без/i)) {
+          if (jamsText !== null && text !== jamsText && freeText === null) {
+            freeText = text;
+          }
+        }
+      }
+
+      // Если не нашли через точные селекторы — ищем по текстовому содержимому
+      if (kmVal === null) {
+        var fullText = container.textContent || '';
+        var kmMatch2 = fullText.match(/([\d.,]+)\s*км/i);
+        if (kmMatch2) kmVal = parseFloat(kmMatch2[1].replace(',', '.'));
+      }
+
+      if (jamsText === null) {
+        var fullText2 = container.textContent || '';
+        // Ищем паттерны времени
+        var timeMatches = fullText2.match(/(\d+)\s*(?:ч\s*)?(\d+)?\s*мин/g);
+        if (timeMatches && timeMatches.length > 0) {
+          jamsText = timeMatches[0];
+          if (timeMatches.length > 1) freeText = timeMatches[1];
+        }
+        // Или формат "1 ч" без минут
+        var hourMatches = fullText2.match(/(\d+)\s*ч(?!\s*\d)/g);
+        if (hourMatches && jamsText === null) {
+          jamsText = hourMatches[0];
+          if (hourMatches.length > 1) freeText = hourMatches[1];
+        }
+      }
+
+      if (kmVal !== null && kmVal > 0) {
+        // Парсим минуты из текста
+        function parseMinutes(txt) {
+          if (!txt) return 0;
+          var h = txt.match(/(\d+)\s*ч/);
+          var m = txt.match(/(\d+)\s*мин/);
+          var total = 0;
+          if (h) total += parseInt(h[1], 10) * 60;
+          if (m) total += parseInt(m[1], 10);
+          return total || Math.max(1, Math.round(kmVal / 30 * 60));
+        }
+
+        var jamsMin = parseMinutes(jamsText);
+        var freeMin = freeText ? parseMinutes(freeText) : Math.round(jamsMin * 0.75);
+
+        console.log('📊 Данные маршрута из DOM виджета Яндекс.Карт:');
+        console.log('   📍 Расстояние:', kmVal.toFixed(2), 'км');
+        console.log('   🚗 Время с пробками:', jamsMin, 'мин (' + jamsText + ')');
+        console.log('   🛣️ Время без пробок:', freeMin, 'мин (' + (freeText || 'расчётно') + ')');
+
+        callback({ km: kmVal, jamsMin: jamsMin, freeMin: freeMin });
+        return;
+      }
+
+      if (attempts < maxAttempts) {
+        setTimeout(tryExtract, 500);
+      } else {
+        console.warn('⚠ Данные маршрута не найдены в DOM виджета');
+        callback(null);
+      }
+    }
+
+    // Небольшая задержка чтобы DOM успел отрисоваться
+    setTimeout(tryExtract, 800);
+  }
+
   function extractYandexStats(route) {
     if (!route) return null;
-    var totalKm = 0, jamsSec = 0, freeSec = 0;
+    var totalKm = 0, jamsMin = 0, freeMin = 0;
     try {
-      var target = route;
-      if (typeof route.getActiveRoute === "function") {
-        var ar = route.getActiveRoute();
-        if (ar) target = ar;
-      } else if (route.getRoutes && typeof route.getRoutes === "function") {
-        var rCol = route.getRoutes();
-        if (typeof rCol.get === "function") target = rCol.get(0) || target;
-        else if (rCol[0]) target = rCol[0];
+      var activeRoute = null;
+      // Способ 1: через getActiveRoute (если выбран)
+      if (typeof route.getActiveRoute === 'function') {
+        activeRoute = route.getActiveRoute();
+      }
+      // Способ 2: через model.getRoutes() — основной способ по API 2.1
+      if (!activeRoute && route.model && typeof route.model.getRoutes === 'function') {
+        var routes = route.model.getRoutes();
+        if (routes && routes.length > 0) activeRoute = routes[0];
       }
 
-      if (typeof target.getLength === "function") {
-        totalKm = target.getLength() / 1000;
-      } else if (target.properties && typeof target.properties.get === "function" && target.properties.get("distance")) {
-        var rd = target.properties.get("distance");
-        totalKm = (rd.value !== undefined ? rd.value : rd) / 1000;
-      } else if (target.distance) {
-        var dv = target.distance.value !== undefined ? target.distance.value : target.distance;
-        totalKm = dv / 1000;
+      if (activeRoute && activeRoute.properties) {
+        var props = activeRoute.properties;
+
+        // Расстояние в метрах → км
+        var distVal = props.get('distance');
+        if (distVal != null) {
+          var distMeters = (typeof distVal === 'object' && distVal.value !== undefined) ? distVal.value : (typeof distVal === 'number' ? distVal : parseFloat(distVal));
+          totalKm = distMeters / 1000;
+        }
+
+        // Время с пробками (time) в секундах → минуты
+        var timeVal = props.get('time');
+        if (timeVal != null) {
+          var timeSec = (typeof timeVal === 'object' && timeVal.value !== undefined) ? timeVal.value : (typeof timeVal === 'number' ? timeVal : parseFloat(timeVal));
+          jamsMin = Math.max(1, Math.round(timeSec / 60));
+        }
+
+        // Время без пробок (timeWithoutTraffic) в секундах → минуты
+        var timeNoTrafficVal = props.get('timeWithoutTraffic');
+        if (timeNoTrafficVal != null) {
+          var timeNoTrafficSec = (typeof timeNoTrafficVal === 'object' && timeNoTrafficVal.value !== undefined) ? timeNoTrafficVal.value : (typeof timeNoTrafficVal === 'number' ? timeNoTrafficVal : parseFloat(timeNoTrafficVal));
+          freeMin = Math.max(1, Math.round(timeNoTrafficSec / 60));
+        }
       }
 
-      if (typeof target.getJamsTime === "function") {
-        jamsSec = target.getJamsTime();
-      } else if (target.properties && typeof target.properties.get === "function" && target.properties.get("durationInTraffic")) {
-        var jt = target.properties.get("durationInTraffic");
-        jamsSec = jt.value !== undefined ? jt.value : jt;
-      } else if (target.durationInTraffic) {
-        jamsSec = target.durationInTraffic.value !== undefined ? target.durationInTraffic.value : target.durationInTraffic;
+      // Fallback: если свойства не найдены, пробуем getLength/getJamsTime/getTime
+      if (totalKm === 0 && activeRoute && typeof activeRoute.getLength === 'function') {
+        totalKm = activeRoute.getLength() / 1000;
       }
-
-      if (typeof target.getTime === "function") {
-        freeSec = target.getTime();
-      } else if (target.properties && typeof target.properties.get === "function" && target.properties.get("duration")) {
-        var ft = target.properties.get("duration");
-        freeSec = ft.value !== undefined ? ft.value : ft;
-      } else if (target.duration) {
-        freeSec = target.duration.value !== undefined ? target.duration.value : target.duration;
+      if (jamsMin === 0 && activeRoute && typeof activeRoute.getJamsTime === 'function') {
+        var jt = activeRoute.getJamsTime();
+        if (jt > 0) jamsMin = Math.max(1, Math.round(jt / 60));
       }
-    } catch(e) {}
+      if (freeMin === 0 && activeRoute && typeof activeRoute.getTime === 'function') {
+        var ft = activeRoute.getTime();
+        if (ft > 0) freeMin = Math.max(1, Math.round(ft / 60));
+      }
+    } catch(e) {
+      console.error('extractYandexStats error:', e);
+    }
 
-    if (totalKm > 0 || jamsSec > 0 || freeSec > 0) {
-      var jamsMin = jamsSec > 0 ? Math.max(1, Math.round(jamsSec / 60)) : 0;
-      var freeMin = freeSec > 0 ? Math.max(1, Math.round(freeSec / 60)) : 0;
-      if (jamsMin === 0 && freeMin > 0) jamsMin = freeMin;
-      if (freeMin === 0 && jamsMin > 0) freeMin = jamsMin;
+    if (jamsMin === 0 && freeMin > 0) jamsMin = freeMin;
+    if (freeMin === 0 && jamsMin > 0) freeMin = jamsMin;
+
+    console.log('📊 Данные маршрута из API Яндекс.Карт:');
+    console.log('   Расстояние:', totalKm.toFixed(2), 'км')
+    console.log('   Время с пробками:', jamsMin, 'мин')
+    console.log('   Время без пробок:', freeMin, 'мин')
+
+    if (totalKm > 0) {
       return { km: totalKm, jamsMin: jamsMin, freeMin: freeMin };
     }
     return null;
   }
 
   function getMultiRouteStatsAsync(route, callback) {
+    // Сразу пробуем извлечь
     var stats = extractYandexStats(route);
     if (stats && stats.km > 0) {
       callback(stats);
       return;
     }
+    // Если не получилось — ждём событие requestsuccess на модели
     try {
+      var handler = function() {
+        var s = extractYandexStats(route);
+        if (s && s.km > 0) {
+          callback(s);
+          // Удаляем обработчик после первого успешного вызова
+          try { route.model.events.remove('requestsuccess', handler); } catch(e) {}
+        }
+      };
       if (route && route.model && route.model.events) {
-        route.model.events.add("requestsuccess", function() {
-          var s = extractYandexStats(route);
-          if (s && s.km > 0) callback(s);
-        });
+        route.model.events.add('requestsuccess', handler);
       } else if (route && route.events) {
-        route.events.add("requestsuccess", function() {
-          var s = extractYandexStats(route);
-          if (s && s.km > 0) callback(s);
-        });
+        route.events.add('requestsuccess', handler);
       }
     } catch(e) {}
   }
