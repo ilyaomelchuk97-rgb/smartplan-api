@@ -89,7 +89,7 @@
   .kpi .hint{font-size:11.5px;color:var(--muted);margin-top:5px}
   .kpi .acc{position:absolute;right:-14px;top:-14px;width:62px;height:62px;border-radius:50%;opacity:.12}
   .dash-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:16px}
-  .today-mstr{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:9px}
+  .today-mstr{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:9px;margin-top:9px}
   .today-mstr .dot{width:10px;height:10px;border-radius:50%;flex:0 0 10px}
   .today-mstr .nm{font-weight:700;color:var(--ink);font-size:13px}
   .today-mstr .ar{font-size:11px;color:var(--muted)}
@@ -200,7 +200,7 @@
 
   /* ---------- ВИДЖЕТ МАРШРУТА (iframe Яндекс.Карт по ссылке) ---------- */
   .route-frame{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;background:#e8eef3}
-  .route-link-panel{position:absolute;left:12px;right:12px;bottom:12px;z-index:5;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;border:1px solid var(--line);background:rgba(15,39,64,.92);backdrop-filter:blur(10px);border-radius:12px;padding:10px 14px;color:#e2e8f0}
+  .route-link-panel{position:absolute;left:12px;right:12px;top:12px;z-index:1000;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;border:1px solid var(--line);background:rgba(15,39,64,.92);backdrop-filter:blur(10px);border-radius:12px;padding:10px 14px;color:#e2e8f0;box-shadow:0 4px 16px rgba(0,0,0,.25)}
   .route-link-panel span{font-size:12.5px;flex:1;min-width:200px}
   .route-actions{display:flex;gap:8px;align-items:center;margin-left:auto}
 
@@ -243,7 +243,7 @@
   .modal-f{padding:13px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:9px;background:#f8fafc;flex-shrink:0}
 
   /* ---------- TOAST ---------- */
-  #toasts{position:fixed;right:18px;bottom:18px;z-index:300;display:flex;flex-direction:column;gap:9px}
+  #toasts{position:fixed;right:18px;bottom:18px;z-index:999999;display:flex;flex-direction:column;gap:9px}
   .toast{background:var(--slate);color:#fff;padding:12px 15px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-lg);max-width:340px;border-left:4px solid var(--blue);animation:in .2s ease}
   .toast.ok{border-left-color:var(--green)} .toast.warn{border-left-color:var(--yellow)} .toast.err{border-left-color:var(--red)}
   @keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
@@ -373,7 +373,7 @@
     .modal-b{padding:14px}
     /* AI чат — на весь экран */
     #ai-chat-window{width:100%!important;max-width:100%!important;height:100vh!important;max-height:100vh!important;border-radius:0;bottom:0;right:0}
-    #ai-chat-toggle{bottom:14px;right:14px;padding:10px 14px;font-size:13px}
+    #ai-chat-toggle{top:10px;right:130px;padding:7px 12px;font-size:12px}
     /* Тосты — выше, чтобы не перекрывать кнопку чата */
     #toasts{bottom:70px;right:10px;left:10px}
     .toast{max-width:100%}
@@ -431,7 +431,7 @@
   }
 
   /* ---------- ЭКРАН ВХОДА ---------- */
-  .login-screen{position:fixed;inset:0;z-index:500;background:linear-gradient(135deg,#0f2740,#16385c);display:flex;align-items:center;justify-content:center;padding:20px}
+  .login-screen{position:fixed;inset:0;z-index:500;background:linear-gradient(135deg,rgba(15,39,64,.25),rgba(22,56,92,.25)),url('фон.jpg') center/cover no-repeat;display:flex;align-items:center;justify-content:center;padding:20px}
   body.logged-in .login-screen{display:none}
   .login-card{background:#fff;border-radius:16px;width:100%;max-width:384px;box-shadow:0 24px 70px rgba(0,0,0,.4);overflow:hidden}
   .login-brand{display:flex;align-items:center;gap:11px;padding:18px 20px;background:#f8fafc;border-bottom:1px solid var(--line)}
@@ -444,6 +444,9 @@
   .li-hint{margin-top:14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:10px 12px;font-size:11.5px;color:#1e3a8a;line-height:1.8}
   .li-hint code{background:#dbeafe;padding:1px 5px;border-radius:4px;font-weight:700}
   body:not(.logged-in) .app{display:none}
+  /* AI чат скрыт до входа в систему */
+  body:not(.logged-in) #ai-chat-toggle{display:none!important}
+  body:not(.logged-in) #ai-chat-window{display:none!important}
 
   /* =====================================================================
      АНИМАЦИИ И ПЕРЕХОДЫ (весь сайт)
@@ -554,6 +557,11 @@
   .nav::-webkit-scrollbar-thumb,.cal-scroll::-webkit-scrollbar-thumb,.mlist::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px;transition:background .2s}
   .nav::-webkit-scrollbar-thumb:hover,.cal-scroll::-webkit-scrollbar-thumb:hover,.mlist::-webkit-scrollbar-thumb:hover{background:#94a3b8}
 
+  /* ---------- LEAFLET ---------- */
+  .leaflet-control-container .leaflet-bottom.leaflet-right { display: none !important }
+  .leaflet-control-zoom { border: none !important; box-shadow: 0 2px 8px rgba(0,0,0,.15) !important }
+  .leaflet-control-zoom a { background: #fff !important; color: var(--ink) !important; border: none !important }
+
   /* ---------- TOUCH / ПЛАНШЕТЫ ---------- */
   /* touch-action: none чтобы браузер не перехватывал жест при перетаскивании */
   .tile[draggable="true"], .mtask[draggable="true"] { touch-action: none }
@@ -578,6 +586,7 @@
   /* Уважение к настройке «уменьшить анимацию» */
   @media (prefers-reduced-motion:reduce){
     *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+    .ai-typing span{animation:aiWave 1.2s ease-in-out infinite!important}
   }
 
   /* ---------- ЧИПЫ РОЛЕЙ ---------- */
@@ -585,11 +594,12 @@
   .chip.blue{background:#dbeafe;color:#1d4ed8}
   .chip.purple{background:#ede9fe;color:#6d28d9}
   .chip.teal{background:#ccfbf1;color:#0f766e}
+  .chip.slate{background:#e2e8f0;color:#475569}
   .fld label.cb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);font-weight:600;cursor:pointer}
   .fld label.cb input{width:auto;margin:0}
 
   /* ---------- AI ЧАТ ---------- */
-  #ai-chat-toggle{position:fixed;bottom:20px;right:20px;z-index:99998;display:flex;align-items:center;gap:8px;padding:12px 18px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border:none;border-radius:30px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(37,99,235,.4);transition:.3s;font-family:inherit;animation:fadeInUp .4s ease}
+  #ai-chat-toggle{position:fixed;top:13px;right:170px;z-index:99998;display:flex;align-items:center;gap:8px;padding:8px 16px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border:none;border-radius:30px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(37,99,235,.4);transition:.3s;font-family:inherit;animation:fadeInUp .4s ease}
   #ai-chat-toggle>*{pointer-events:none}
   #ai-chat-toggle:hover{transform:translateY(-2px);box-shadow:0 6px 25px rgba(37,99,235,.5)}
   #ai-chat-toggle svg{width:22px;height:22px}
@@ -607,10 +617,10 @@
   .ai-msg.bot{background:#fff;border:1px solid var(--line);color:var(--ink);align-self:flex-start;border-bottom-left-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
   .ai-msg.bot b{color:var(--blue)}
   .ai-typing{align-self:flex-start;display:flex;gap:4px;padding:12px 16px;background:#fff;border:1px solid var(--line);border-radius:12px;border-bottom-left-radius:4px}
-  .ai-typing span{width:8px;height:8px;border-radius:50%;background:#94a3b8;animation:aiBlink 1.4s infinite both}
-  .ai-typing span:nth-child(2){animation-delay:.2s}
-  .ai-typing span:nth-child(3){animation-delay:.4s}
-  @keyframes aiBlink{0%,80%,100%{opacity:.3}40%{opacity:1}}
+  .ai-typing span{width:8px;height:8px;border-radius:50%;background:#2563eb;display:inline-block;animation:aiWave 1.2s ease-in-out infinite}
+  .ai-typing span:nth-child(2){animation-delay:.15s}
+  .ai-typing span:nth-child(3){animation-delay:.3s}
+  @keyframes aiWave{0%,100%{transform:translateY(0);opacity:.4}50%{transform:translateY(-7px);opacity:1}}
   .ai-chat-f{padding:12px 14px;border-top:1px solid var(--line);background:#fff;display:flex;gap:8px}
   .ai-chat-f input{flex:1;padding:10px 14px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;font-family:inherit;outline:none;color:var(--ink)}
   .ai-chat-f input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
@@ -697,6 +707,12 @@
   .tile.t-weather .tw{color:#92400e!important}
   .ov-weather{position:absolute;top:2px;right:3px;font-size:9px;font-weight:800;color:#fff;background:#f59e0b;border-radius:5px;padding:0 4px}
   .tile-permit{display:block;font-size:9px;color:#b91c1c;font-weight:700;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Бейдж времени в пути (маршрут) в ячейке календаря */
+  .cell-route{font-size:9px;font-weight:700;color:#1e40af;background:#dbeafe;border-radius:4px;padding:1px 5px;margin-top:auto;white-space:nowrap;align-self:flex-start}
+  /* Карточка базы в списке заданий карты */
+  .mtask.base-card{cursor:default!important}
+  .mtask.base-card:hover{transform:none!important;background:linear-gradient(135deg,#0f2740,#1a3a5c)!important;border-color:transparent!important}
+  .mtask.base-card:hover .pin{transform:none!important}
 </style>
 </head>
 <body>
@@ -718,9 +734,10 @@
         <div class="li-err" id="li-err"></div>
         <button class="btn primary" type="submit" id="li-btn" style="width:100%;justify-content:center">Войти</button>
         <div style="margin-top:16px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;color:#475569;line-height:1.4;">
-          <div style="font-weight:700;margin-bottom:6px;color:#0f2740;">💡 Вход администратора (пароль <span style="color:#2563eb;font-family:monospace;font-weight:700;">admin123</span>):</div>
+          <div style="font-weight:700;margin-bottom:6px;color:#0f2740;">💡 Стандартные аккаунты (автозаполнение):</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
-            <button type="button" class="btn sm" style="background:#fff;border:1px solid #cbd5e1;padding:4px 8px;font-size:11px;color:#0f2740;" onclick="document.getElementById('li-login').value='admin';document.getElementById('li-pass').value='admin123';">👑 admin (Администратор)</button>
+            <button type="button" class="btn sm" style="background:#fff;border:1px solid #cbd5e1;padding:4px 8px;font-size:11px;color:#0f2740;" onclick="document.getElementById('li-login').value='admin';document.getElementById('li-pass').value='admin123';">👑 admin / admin123 (Администратор)</button>
+            <button type="button" class="btn sm" style="background:#fff;border:1px solid #cbd5e1;padding:4px 8px;font-size:11px;color:#475569;" onclick="document.getElementById('li-login').value='seogs';document.getElementById('li-pass').value='seogs123';">👁 seogs / seogs123 (Начальник СЭОГС — просмотр)</button>
           </div>
           <div style="margin-top:6px;font-size:11px;color:#64748b;">* Нажмите на кнопку для автозаполнения логина и пароля</div>
         </div>
@@ -757,6 +774,8 @@
       <a data-screen="refs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20V3H6.5A2.5 2.5 0 004 5.5z"/><path d="M4 19.5V21h12"/></svg>Справочники</a>
       <div class="grp">Администрирование</div>
       <a data-screen="users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Пользователи</a>
+      <a data-screen="aikb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>База знаний AI</a>
+      <a data-screen="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/><path d="M3 12h2M19 12h2M12 3v2M12 19v2"/></svg>Журнал действий</a>
     </nav>
     <div class="sb-foot">УП «МИНГАЗ» · v0.9 прототип<br>© 2026 SmartPlan</div>
   </aside>
@@ -769,6 +788,8 @@
         <h1 id="screen-title">Дашборд</h1>
         <div class="crumb" id="screen-crumb">Рабочий стол</div>
       </div>
+      <div class="spacer"></div>
+      <div id="topbar-date" style="font-size:13px;font-weight:700;color:var(--blue);white-space:nowrap;"></div>
       <div class="spacer"></div>
       <button class="btn ghost" data-action="logout" title="Выйти из системы"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg> Выйти</button>
       <div class="usr">
@@ -783,6 +804,7 @@
 <div id="tip"></div>
 <div id="toasts"></div>
 <div id="report-month-dropdown" class="report-month-dropdown"></div>
+<div id="dash-month-dropdown" class="report-month-dropdown"></div>
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -820,8 +842,8 @@
   <div class="ai-chat-h">
     <div class="av-ai">🤖</div>
     <div>
-      <div class="title-ai">AI помощник</div>
-      <div class="sub-ai">Умный ассистент SmartPlan</div>
+      <div class="title-ai">SmartPlanAi</div>
+      <div class="sub-ai">Ассистент УП «МИНГАЗ»</div>
     </div>
     <button class="close-ai" id="ai-chat-close">×</button>
   </div>
@@ -835,5 +857,5 @@
 </div>
 
 <script src="app.js"></script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1ae604abb16289c',t:'MTc4NDAwOTU1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
