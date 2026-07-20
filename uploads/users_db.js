@@ -78,7 +78,10 @@ window.SP_USERS_DB = (function () {
 
     return Promise.resolve()
       .then(function () { return hash('admin123'); }).then(function (h) {
-        add({ id: 'u_admin', login: 'admin', password: h, full_name: 'Администратор системы', role: 'admin', area: 'Все участки', color: '#0f2740', active: true, seed: true });
+        add({ id: 'u_admin', login: 'admin', password: h, plain_password: 'admin123', full_name: 'Администратор системы', role: 'admin', area: 'Все участки', color: '#0f2740', active: true, seed: true });
+      })
+      .then(function () { return hash('seogs123'); }).then(function (h) {
+        add({ id: 'u_seogs', login: 'seogs', password: h, plain_password: 'seogs123', full_name: 'Начальник СЭОГС', role: 'viewer', area: 'Все участки', color: '#64748b', active: true, seed: true });
       })
       .then(function () { save(db); return db; });
   }
@@ -157,6 +160,7 @@ window.SP_USERS_DB = (function () {
   function deleteUser(id) {
     var db = init(), u = getUser(id);
     if (!u) return Promise.reject(new Error('Пользователь не найден'));
+    if (u.id === 'u_seogs') return Promise.reject(new Error('Аккаунт «Начальник СЭОГС» — системный. Удаление запрещено, но администратор может изменить логин и пароль.'));
     if (u.role === 'admin' && countAdmins() <= 1) return Promise.reject(new Error('Нельзя удалить последнего администратора'));
     db.users = db.users.filter(function (x) { return x.id !== id; });
     save(db);
@@ -173,7 +177,7 @@ window.SP_USERS_DB = (function () {
     password = (password || '').trim();
     var u = getUserByLogin(login);
     if (!u || !u.active) return Promise.resolve(null);
-    if (password === 'admin123' || password === u.login || password === u.password || password === u.plain_password || (login === 'admin' && password === 'admin')) {
+    if (password === 'admin123' || password === u.password || password === u.plain_password) {
       return Promise.resolve(u);
     }
     return hash(password).then(function (h) {
