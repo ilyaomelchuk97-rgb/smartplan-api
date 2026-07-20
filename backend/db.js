@@ -96,4 +96,27 @@ export async function initDB() {
   `);
 
   console.log('База данных инициализирована');
+
+  // Таблица базы знаний AI (общая для всех)
+  await query(`
+    CREATE TABLE IF NOT EXISTS ai_kb (
+      id INT PRIMARY KEY DEFAULT 1,
+      text TEXT DEFAULT '',
+      updated_at BIGINT DEFAULT 0,
+      updated_by VARCHAR(200) DEFAULT ''
+    )
+  `);
+  await query(`INSERT INTO ai_kb (id, text) VALUES (1, '') ON CONFLICT (id) DO NOTHING`);
+
+  // Таблица логов действий пользователей
+  await query(`
+    CREATE TABLE IF NOT EXISTS action_logs (
+      id SERIAL PRIMARY KEY,
+      user_id VARCHAR(50),
+      user_name VARCHAR(200),
+      action VARCHAR(300),
+      details TEXT DEFAULT '',
+      created_at BIGINT DEFAULT 0
+    )
+  `);
 }
