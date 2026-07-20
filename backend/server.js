@@ -135,6 +135,9 @@ app.put('/api/users/:id', async (req, res) => {
 app.delete('/api/users/:id', async (req, res) => {
   try {
     const admins = await query("SELECT COUNT(*) as cnt FROM users WHERE role='admin' AND active=true");
+    if (req.params.id === 'u_seogs') {
+      return res.status(400).json({ error: 'Аккаунт «Начальник СЭОГС» — системный. Удаление запрещено.' });
+    }
     const u = await query('SELECT role FROM users WHERE id=$1', [req.params.id]);
     if (u.rows.length && u.rows[0].role === 'admin' && parseInt(admins.rows[0].cnt) <= 1) {
       return res.status(400).json({ error: 'Нельзя удалить последнего администратора' });
@@ -437,6 +440,18 @@ app.post('/api/seed', async (req, res) => {
       );
     }
 
+    // Начальник СЭОГС — только просмотр (права как у админа, без редактирования)
+    const seogsExists = await query("SELECT id FROM users WHERE id='u_seogs'");
+    if (!seogsExists.rows.length) {
+      const hashedS = bcrypt.hashSync('seogs123', 10);
+      await query(
+        `INSERT INTO users (id, login, password, plain_password, full_name, role, area, color, active, created)
+         VALUES ('u_seogs','seogs',$1,'seogs123','Начальник СЭОГС','viewer','Все участки','#64748b',true,$2)
+         ON CONFLICT (id) DO NOTHING`,
+        [hashedS, Date.now()]
+      );
+    }
+
     // Базовые виды работ УБиРОГС
     const workCount = await query("SELECT COUNT(*) as cnt FROM works WHERE area='УБиРОГС'");
     if (parseInt(workCount.rows[0].cnt) === 0) {
@@ -489,6 +504,52 @@ app.post('/api/seed', async (req, res) => {
     console.error('SEED error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ============================================================
+// БАЗА ЗНАНИЙ AI (общая для всех, хранится на сервере)
+// ============================================================
+app.get('/api/aikb', async (req, res) => {
+  try {
+    const r = await query('SELECT text, updated_at, updated_by FROM ai_kb WHERE id = 1');
+    res.json(r.rows[0] || { text: '', updated_at: 0, updated_by: '' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/aikb', async (req, res) => {
+  try {
+    const { text, updated_by } = req.body;
+    await query('UPDATE ai_kb SET text = $1, updated_at = $2, updated_by = $3 WHERE id = 1',
+      [text || '', Date.now(), updated_by || '']);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ============================================================
+// ЛОГИ ДЕЙСТВИЙ ПОЛЬЗОВАТЕЛЕЙ
+// ============================================================
+app.get('/api/logs', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 500, 2000);
+    const r = await query('SELECT * FROM action_logs ORDER BY created_at DESC LIMIT $1', [limit]);
+    res.json({ logs: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/logs', async (req, res) => {
+  try {
+    const { user_id, user_name, action, details } = req.body;
+    await query('INSERT INTO action_logs (user_id, user_name, action, details, created_at) VALUES ($1,$2,$3,$4,$5)',
+      [user_id || '', user_name || '', action || '', details || '', Date.now()]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/logs', async (req, res) => {
+  try {
+    await query('DELETE FROM action_logs');
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ============================================================
