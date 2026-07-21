@@ -372,7 +372,7 @@
     .modal{max-width:100%!important;border-radius:0;min-height:100vh}
     .modal-b{padding:14px}
     /* AI чат — на весь экран */
-    #ai-chat-window{width:100%!important;max-width:100%!important;height:100vh!important;max-height:100vh!important;border-radius:0;bottom:0;right:0}
+    #ai-chat-window{width:100%!important;max-width:100%!important;height:100vh!important;max-height:100vh!important;border-radius:8px;zoom:0.5;bottom:0!important;right:0!important;left:auto!important;top:auto!important}
     #ai-chat-toggle{top:10px;right:130px;padding:7px 12px;font-size:12px}
     /* Тосты — выше, чтобы не перекрывать кнопку чата */
     #toasts{bottom:70px;right:10px;left:10px}
@@ -413,7 +413,7 @@
     .topbar{padding:4px 12px}
     #view{padding:10px}
     /* AI чат — половина экрана в ландшафте */
-    #ai-chat-window{width:50%!important;max-width:380px!important}
+    #ai-chat-window{width:100%!important;max-width:100%!important;zoom:0.5!important}
     /* Экран входа компактнее */
     .login-card{max-width:340px}
   }
@@ -652,8 +652,8 @@
   #date-popup .dp-overlay{position:fixed;inset:0;z-index:-1}
 
   /* ---------- ПОПАП ПОГОДЫ (выпадающий список) ---------- */
-  .weather-dropdown{display:none;margin-top:8px;background:linear-gradient(160deg,#1e3a5f,#0f2740);color:#fff;border-radius:14px;padding:16px;box-shadow:0 12px 30px rgba(0,0,0,.2);overflow:hidden;max-height:0;opacity:0;transition:max-height .4s ease,opacity .3s ease,padding .3s ease;padding-top:0;padding-bottom:0}
-  .weather-dropdown.open{display:block;max-height:300px;opacity:1;padding-top:16px;padding-bottom:16px;animation:wpFadeIn .4s ease}
+  .weather-dropdown{max-height:0;opacity:0;overflow:hidden;padding:0 16px;margin-top:0;background:linear-gradient(160deg,#1e3a5f,#0f2740);color:#fff;border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.2);transition:max-height .45s cubic-bezier(.4,0,.2,1),opacity .35s ease,padding .35s ease,margin-top .35s ease}
+  .weather-dropdown.open{max-height:360px;opacity:1;padding:16px;margin-top:8px}
   @keyframes wpFadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
   .weather-dropdown .wd-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
   .weather-dropdown .wd-title{font-size:14px;font-weight:700}
@@ -664,6 +664,24 @@
   .weather-dropdown .wd-day{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 10px;text-align:center;min-width:95px;transition:.3s;animation:wpDayIn .4s ease backwards;cursor:pointer;display:flex;flex-direction:column;align-items:center}
   @keyframes wpDayIn{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
   .weather-dropdown .wd-day:hover{background:rgba(255,255,255,.15);transform:translateY(-3px)}
+  /* === Анимированная сцена погоды (v3) === */
+  .wx-scene{position:absolute;inset:0;overflow:hidden;border-radius:10px;z-index:0;pointer-events:none}
+  .wx-sun{position:absolute;border-radius:50%;animation:wxSunPulse 4s ease-in-out infinite}
+  .wx-sun:before{content:"";position:absolute;inset:-40%;border-radius:50%;background:inherit;filter:blur(12px);opacity:.5}
+  .wx-moon{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff,#e0e8f0 60%,#bcc8d8);box-shadow:0 0 18px 4px rgba(220,230,245,.35);animation:wxMoonFloat 6s ease-in-out infinite}
+  .wx-moon:before{content:"";position:absolute;width:28%;height:28%;top:18%;left:14%;border-radius:50%;background:rgba(0,0,0,.06);box-shadow:10px 7px 0 -1px rgba(0,0,0,.05),5px 14px 0 -2px rgba(0,0,0,.04)}
+  .wx-star{position:absolute;width:2px;height:2px;background:#fff;border-radius:50%;box-shadow:0 0 3px rgba(255,255,255,.8);animation:wxTwinkle 2.5s ease-in-out infinite}
+  .wx-cloud{position:absolute;background:rgba(255,255,255,.82);border-radius:100px;animation:wxCloudDrift 16s ease-in-out infinite alternate}
+  .wx-cloud:before{content:"";position:absolute;width:55%;height:140%;top:-55%;left:12%;border-radius:50%;background:inherit}
+  .wx-cloud:after{content:"";position:absolute;width:40%;height:110%;top:-38%;right:16%;border-radius:50%;background:inherit}
+  .wx-drop{position:absolute;width:3px;height:8px;border-radius:50% 50% 50% 50% / 65% 65% 35% 35%;background:linear-gradient(to bottom,rgba(150,180,220,.2),rgba(150,180,220,.85));box-shadow:0 0 2px rgba(150,180,220,.3);animation:wxDropFall .9s linear infinite}
+  .wx-flake{position:absolute;color:rgba(255,255,255,.9);font-size:9px;animation:wxFlakeFall 3s linear infinite}
+  @keyframes wxSunPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.12)}}
+  @keyframes wxMoonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+  @keyframes wxTwinkle{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:1;transform:scale(1.3)}}
+  @keyframes wxCloudDrift{from{transform:translateX(-10px)}to{transform:translateX(10px)}}
+  @keyframes wxDropFall{0%{transform:translateY(-14px);opacity:0}8%{opacity:.7}85%{opacity:.7}100%{transform:translateY(82px);opacity:0}}
+  @keyframes wxFlakeFall{0%{transform:translateY(-10px) translateX(0);opacity:0}10%{opacity:.9}50%{transform:translateY(35px) translateX(4px)}90%{opacity:.9}100%{transform:translateY(82px) translateX(-3px);opacity:0}}to{background-position:3px 16px}}
   .weather-dropdown .wd-day.today{background:linear-gradient(135deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.5)}
   .weather-dropdown .wd-dow{font-size:10px;text-transform:uppercase;color:#93c5fd;font-weight:700}
   .weather-dropdown .wd-date{font-size:13px;font-weight:800;margin:2px 0 6px}
@@ -857,5 +875,5 @@
 </div>
 
 <script src="app.js"></script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1e94b5dbe3324bb',t:'MTc4NDYyNzM1Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
