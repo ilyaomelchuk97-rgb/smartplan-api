@@ -82,7 +82,8 @@
     })
   };
 
-  var CAP = 8; // ФРВ: рабочий день = 8 ч
+  var CAP = 8; // ФРВ: рабочий день = 8 ч (Пн–Чт)
+  function dayCapacity(off) { return offToDate(off).getDay() === 5 ? 7.25 : 8; } // Пт=7.25, остальное=8
 
   /* ---------- ПРАВА ДОСТУПА (иерархия) ----------
      admin   — видит и редактирует ВСЁ (все участки)
@@ -489,7 +490,7 @@
 
   function kpiOverloads() {
     var masters = visibleMasters();
-    var overloaded = masters.filter(function (m) { return loadForDay(m.id, 0) > CAP; });
+    var overloaded = masters.filter(function (m) { return loadForDay(m.id, 0) > dayCapacity(0); });
     var body = '';
     if (!overloaded.length) { openKpiPopup('Перегрузок сегодня', '#dc2626', '<div class="empty">🎉 Перегрузок нет!</div>'); return; }
     overloaded.forEach(function (m) {
@@ -497,7 +498,7 @@
       var dayTasks = visibleTasks().filter(function(t) { return t.m === m.id && t.d === 0 && !isDone(t); });
       var taskList = '';
       dayTasks.forEach(function(t) { var w = workOf(t); taskList += '<div class="taskline"><span class="pill">' + esc(w ? w.name : '?') + '</span><span>' + esc(addrOf(t)) + '</span><span style="margin-left:auto;color:var(--red);font-weight:700">' + fmtH(taskHours(t)) + ' ч</span></div>'; });
-      body += '<div class="today-mstr" style="border-color:var(--red);background:#fff5f5;"><span class="dot" style="background:' + m.color + '"></span><div><div class="nm">' + esc(m.name) + '</div><div class="ar">' + esc(m.area) + '</div></div><div class="meta"><div class="h" style="color:var(--red)">' + fmtH(load) + ' ч / ' + CAP + ' ч</div><span class="tag over">⚠ +' + fmtH(load - CAP) + ' ч</span></div></div>';
+      body += '<div class="today-mstr" style="border-color:var(--red);background:#fff5f5;"><span class="dot" style="background:' + m.color + '"></span><div><div class="nm">' + esc(m.name) + '</div><div class="ar">' + esc(m.area) + '</div></div><div class="meta"><div class="h" style="color:var(--red)">' + fmtH(load) + ' ч / ' + fmtH(dayCapacity(0)) + ' ч</div><span class="tag over">⚠ +' + fmtH(load - dayCapacity(0)) + ' ч</span></div></div>';
       body += taskList;
     });
     openKpiPopup('Перегрузки сегодня (' + overloaded.length + ')', '#dc2626', body);
@@ -540,6 +541,16 @@
     var rt = getRouteTime(t.m, t.d);
     if (rt && rt.legs && rt.legs[t.id]) return rt.legs[t.id].min || 0;
     return (t.travelMin != null) ? t.travelMin : 0;
+  }
+  // Оценка времени в пути до объекта (мин), если реальный маршрут не рассчитан:
+  // расстояние по прямой от базы × коэффициент дорог / ~35 км/ч.
+  function estimateTravelMin(t) {
+    if (!t) return 0;
+    var lat = (t.lat != null) ? t.lat : null, lng = (t.lng != null) ? t.lng : null;
+    if ((lat == null || lng == null) && t.o) { var o = OBJ_MAP[t.o]; if (o && o.lat && o.lng) { lat = o.lat; lng = o.lng; } }
+    if (lat == null || lng == null) return 0;
+    var km = distKm(currentBase(), { lat: lat, lng: lng }) * 1.4; // коэффициент извилистости дорог
+    return Math.max(3, Math.round(km / 35 * 60));
   }
   // Кол-во рабочих дней (пн–пт) в месяце
   function countWorkDays(y, m) {
@@ -598,12 +609,68 @@
     renderDashboard();
   }
 
+  // Анимированная сцена погоды для карточки дашборда: солнце/луна/звёзды + облака/дождь/снег
+  function weatherSceneHTML(wf) {
+    wf = wf || {};
+    var now = new Date();
+    var sr = wf.sunrise ? new Date(wf.sunrise) : null;
+    var ss = wf.sunset ? new Date(wf.sunset) : null;
+    if (!sr || !ss || isNaN(sr.getTime()) || isNaN(ss.getTime())) {
+      sr = new Date(now); sr.setHours(6, 0, 0, 0);
+      ss = new Date(now); ss.setHours(20, 0, 0, 0);
+    }
+    var morningEnd = new Date(sr.getTime() + 2.5 * 3600000);
+    var eveningStart = new Date(ss.getTime() - 2.5 * 3600000);
+    var tod;
+    if (now < sr || now >= ss) tod = 'night';
+    else if (now < morningEnd) tod = 'morning';
+    else if (now >= eveningStart) tod = 'evening';
+    else tod = 'day';
+    var code = wf.code || 0, desc = wf.desc || '';
+    var cloudy = (code >= 2 && code <= 3) || desc.indexOf('Облачно') !== -1;
+    var hasRain = (wf.rain && wf.rain > 0.1) || (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+    var hasSnow = (wf.snowfall && wf.snowfall > 0.1) || (code >= 71 && code <= 77) || code === 85 || code === 86;
+    var c;
+    if (tod === 'night') c = '#15233d';
+    else if (tod === 'morning') c = '#f6b89c';
+    else if (tod === 'evening') c = '#f0a868';
+    else c = '#42a5f5';
+    var sceneBg = 'linear-gradient(to right,transparent 28%,' + c + ' 58%,' + c + ' 100%)';
+    var scene = '<div class="wx-scene" style="background:' + sceneBg + '">';
+    if (tod === 'night') {
+      for (var i = 0; i < 16; i++) scene += '<span class="wx-star" style="left:' + (52 + Math.random()*46).toFixed(1) + '%;top:' + (Math.random()*60).toFixed(1) + '%;animation-delay:' + (Math.random()*2.5).toFixed(2) + 's"></span>';
+      scene += '<div class="wx-moon" style="top:-6px;right:16px;"></div>';
+    } else {
+      var ss2;
+      if (tod === 'morning') ss2 = 'top:-4px;right:24px;width:38px;height:38px;background:radial-gradient(circle,#fff5cc,#ffc44d 55%,#ff9800);box-shadow:0 0 22px 5px rgba(255,180,50,.5)';
+      else if (tod === 'evening') ss2 = 'top:-2px;right:20px;width:40px;height:40px;background:radial-gradient(circle,#ffe0b2,#ff7043 55%,#e53935);box-shadow:0 0 24px 6px rgba(255,100,50,.5)';
+      else ss2 = 'top:-12px;right:18px;width:46px;height:46px;background:radial-gradient(circle,#fff8d6,#ffd24d 55%,#ffb300);box-shadow:0 0 28px 7px rgba(255,210,77,.55)';
+      scene += '<div class="wx-sun" style="' + ss2 + '"></div>';
+    }
+    if (cloudy || hasRain || hasSnow) {
+      var nc = cloudy ? 3 : 2;
+      for (var cf = 0; cf < nc; cf++) {
+        var cw = 38 + Math.random() * 20;
+        scene += '<div class="wx-cloud" style="right:' + (4 + cf*14 + Math.random()*6).toFixed(0) + '%;top:' + (4 + Math.random()*16).toFixed(0) + '%;width:' + cw.toFixed(0) + 'px;height:' + (cw*0.38).toFixed(0) + 'px;animation-delay:' + (Math.random()*5).toFixed(2) + 's"></div>';
+      }
+    }
+    if (hasRain) {
+      for (var r = 0; r < 18; r++) scene += '<span class="wx-drop" style="left:' + (52+Math.random()*46).toFixed(1) + '%;top:0;animation-delay:' + (Math.random()*1.2).toFixed(2) + 's;animation-duration:' + (0.7+Math.random()*0.5).toFixed(2) + 's"></span>';
+    }
+    if (hasSnow) {
+      for (var sf = 0; sf < 14; sf++) scene += '<span class="wx-flake" style="left:' + (52+Math.random()*46).toFixed(1) + '%;top:0;animation-delay:' + (Math.random()*3).toFixed(2) + 's;animation-duration:' + (2.5+Math.random()*1.5).toFixed(2) + 's">❄</span>';
+    }
+    scene += '</div>';
+    return { html: scene };
+  }
+
   function renderDashboard() {
     // Для админа: фильтр по участку (null = все участки)
     var dashFilterArea = S.dashArea;
     function dashMasters() {
-      var all = visibleMasters();
-      if (S.role === 'admin' && dashFilterArea) return all.filter(function (m) { return m.area === dashFilterArea; });
+      // Админ и начальник участка на дашборде видят ВСЕ участки (с возможностью выбора); прочие — свой
+      var all = (S.role === 'admin' || S.role === 'nach') ? getMasters() : visibleMasters();
+      if ((S.role === 'admin' || S.role === 'nach') && dashFilterArea) return all.filter(function (m) { return m.area === dashFilterArea; });
       return all;
     }
     function dashTasks() {
@@ -617,7 +684,7 @@
     var redzone = vt.filter(function (t) { return !isDone(t) && (t.dl <= 2 || t.d < 0); }).sort(function (a, b) { return a.dl - b.dl; });
 
     var mastersToday = dashMasters();
-    var overloads = mastersToday.filter(function (m) { return loadForDay(m.id, 0) > CAP; }).length;
+    var overloads = mastersToday.filter(function (m) { return loadForDay(m.id, 0) > dayCapacity(0); }).length;
     var doneMonth = 0, totalMonth = 0;
     vt.forEach(function (t) {
       var d = offToDate(t.d);
@@ -636,8 +703,8 @@
 
     var html = '';
 
-    // === Селектор участка ТОЛЬКО для админа ===
-    if (S.role === 'admin') {
+    // === Селектор участка для админа и начальника участка ===
+    if (S.role === 'admin' || S.role === 'nach') {
       html += '<div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">';
       html += '<label style="font-size:12px;font-weight:600;color:var(--muted)">Участок:</label>';
       html += '<select id="dash-area" style="padding:8px 12px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;background:#fff">';
@@ -652,7 +719,7 @@
 
     html += '<div class="kpi-row">';
     html += kpi(today.length, 'Задач на сегодня', 'по ' + mastersToday.length + ' мастера(ам)', '#2563eb', 'kpi-today');
-    html += kpi(overloads, 'Перегрузок сегодня', 'превышение ФРВ ' + CAP + ' ч', '#dc2626', 'kpi-overloads');
+    html += kpi(overloads, 'Перегрузок сегодня', 'превышение ФРВ ' + fmtH(dayCapacity(0)) + ' ч', '#dc2626', 'kpi-overloads');
     html += kpi(pct + '%', 'Выполнено за месяц', doneMonth + ' из ' + totalMonth + ' работ', '#16a34a', 'kpi-month');
     // KPI УБиРОГС
     var permitCount = vt.filter(function(t) { return t.needs_permit && !isDone(t); }).length;
@@ -681,10 +748,12 @@
       }
     }
     var wIcon = todayWeather.snow ? '❄️' : todayWeather.desc.indexOf('Дождь') !== -1 || todayWeather.desc.indexOf('Морось') !== -1 ? '🌧️' : todayWeather.desc === 'Ясно' ? '☀️' : '⛅';
-    html += '<div data-action="open-weather" style="margin-bottom:0;padding:10px 14px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;border-radius:10px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:.2s;position:relative;" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 6px 20px rgba(37,99,235,.4)\';" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\';" title="Нажмите для просмотра прогноза на 15 дней">';
-    html += '<span style="font-size:28px;">' + wIcon + '</span>';
-    html += '<div><div style="font-size:15px;font-weight:700;">' + todayWeather.temp + '°C · ' + todayWeather.desc + '</div>';
-    html += '<div style="font-size:11px;color:#cbd5e1;">Погода: Минск · ' + fmt(TODAY) + snowExpected + '</div></div>';
+    var _wx = weatherSceneHTML(todayWeather);
+    html += '<div data-action="open-weather" style="margin-bottom:0;padding:14px 18px;min-height:68px;background:linear-gradient(to right,#1e3a5f 0%,#2563eb 30%,rgba(37,99,235,0) 62%);color:#fff;border-radius:10px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:transform .2s,box-shadow .2s;position:relative;overflow:hidden;" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 8px 24px rgba(0,0,0,.3)\';" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\';" title="Нажмите для просмотра прогноза на 15 дней">';
+    html += _wx.html;
+    html += '<span style="font-size:28px;position:relative;z-index:1;text-shadow:0 1px 5px rgba(0,0,0,.35);">' + wIcon + '</span>';
+    html += '<div style="position:relative;z-index:1;text-shadow:0 1px 5px rgba(0,0,0,.35);"><div style="font-size:15px;font-weight:700;">' + todayWeather.temp + '°C · ' + todayWeather.desc + '</div>';
+    html += '<div style="font-size:11px;color:#e2e8f0;">Погода: Минск · ' + fmt(TODAY) + snowExpected + '</div></div>';
     html += '</div>';
     // Выпадающий список при нажатии
     html += '<div id="weather-dropdown" class="weather-dropdown"></div>';
@@ -699,6 +768,7 @@
       dmTasks.forEach(function(t) {
         aWorkH += taskHours(t);
         var tmin = taskTravelMin(t);
+        if (tmin <= 0) tmin = estimateTravelMin(t);   // нет расчёта маршрута — оценка по расстоянию
         if (tmin > 0) { aTravelMin += tmin; aTravelCnt++; }
       });
       var aTravelH = aTravelMin / 60;
@@ -709,7 +779,11 @@
       var dmRed = dmTasks.filter(function(t) { return !isDone(t) && (t.dl <= 2 || t.d < 0); });
       var dmOverdue = dmTasks.filter(function(t) { return !isDone(t) && (t.dl < 0 || t.d < 0); });
       var dmWorkDays = countWorkDays(dMY.y, dMY.m);
-      var dmCapacity = CAP * dmWorkDays * Math.max(1, dashMasters().length);
+      var dmCapacity = 0;
+      for (var _d = 1, _dim = new Date(dMY.y, dMY.m + 1, 0).getDate(); _d <= _dim; _d++) {
+        dmCapacity += dayCapacity(dateToOff(new Date(dMY.y, dMY.m, _d)));
+      }
+      dmCapacity *= Math.max(1, dashMasters().length);
       var dmReserve = dmCapacity - aWorkH;
       var hasOverdue = dmOverdue.length > 0;
       var dec = function(x) { return (Math.round(x * 10) / 10).toString().replace('.', ','); };
@@ -734,8 +808,8 @@
     mastersToday.forEach(function (m) {
       var mt = today.filter(function (t) { return t.m === m.id; });
       var load = mt.reduce(function (s, t) { return s + (isDone(t) ? 0 : taskHours(t)); }, 0);
-      var over = load > CAP;
-      html += '<div class="today-mstr"><span class="dot" style="background:' + m.color + '"></span><div><div class="nm">' + esc(m.name) + '</div><div class="ar">' + esc(m.area) + '</div></div><div class="meta"><div class="h" style="color:' + (over ? 'var(--red)' : 'var(--ink)') + '">' + fmtH(load) + ' ч / ' + CAP + ' ч</div><span class="tag ' + (over ? 'over' : 'ok') + '">' + (over ? '⚠ Перегрузка +' + fmtH(load - CAP) + ' ч' : mt.length + ' заданий') + '</span></div></div>';
+      var over = load > dayCapacity(0);
+      html += '<div class="today-mstr"><span class="dot" style="background:' + m.color + '"></span><div><div class="nm">' + esc(m.name) + '</div><div class="ar">' + esc(m.area) + '</div></div><div class="meta"><div class="h" style="color:' + (over ? 'var(--red)' : 'var(--ink)') + '">' + fmtH(load) + ' ч / ' + fmtH(dayCapacity(0)) + ' ч</div><span class="tag ' + (over ? 'over' : 'ok') + '">' + (over ? '⚠ Перегрузка +' + fmtH(load - dayCapacity(0)) + ' ч' : mt.length + ' заданий') + '</span></div></div>';
       mt.slice(0, 4).forEach(function (t) {
         var o = OBJ_MAP[t.o], w = workOf(t);
         html += '<div class="taskline"><span class="pill">' + esc(w ? w.name : '?') + '</span><span>' + esc(addrOf(t)) + '</span><span style="margin-left:auto;color:var(--muted)">' + fmtH(taskHours(t)) + ' ч</span></div>';
@@ -771,7 +845,7 @@
     var vt = visibleTasks();
     var mastersToday = visibleMasters();
     var today = vt.filter(function (t) { return t.d === 0; });
-    var overloads = mastersToday.filter(function (m) { return loadForDay(m.id, 0) > CAP; }).length;
+    var overloads = mastersToday.filter(function (m) { return loadForDay(m.id, 0) > dayCapacity(0); }).length;
     var permitCount = vt.filter(function(t) { return t.needs_permit && !isDone(t); }).length;
 
     // Обновляем только значения внутри существующих KPI карточек
@@ -1140,7 +1214,7 @@
         var _cellAC = autoRouteCache[acKey];
         var cellLegs = (_cellAC && _cellAC.legs) ? _cellAC.legs : (_cellRT && _cellRT.legs ? _cellRT.legs : null);
         var load = loadForDay(m.id, off);
-        var over = load > CAP;
+        var over = load > dayCapacity(off);
         var we = (d.getDay() === 0 || d.getDay() === 6);
         var cls = 'cell' + (sameDay(d, TODAY) ? ' today' : '') + (we ? ' we' : '') + (over ? ' overload' : '');
         html += '<div class="' + cls + '" style="grid-column:' + (ci + 2) + ';grid-row:' + rn + '" data-master="' + m.id + '" data-off="' + off + '"' + (over ? ' title="Перегрузка: ' + fmtH(load) + ' ч"' : '') + '>';
@@ -1161,7 +1235,18 @@
             }
             var legInfo = cellLegs ? cellLegs[t.id] : null;
             if (!legInfo && t.travelMin != null && t.travelKm != null) legInfo = { min: t.travelMin, km: t.travelKm };
-            var tileLegHtml = legInfo ? '<span class="tile-leg" style="display:block;font-size:10px;color:#2563eb;font-weight:600;margin-top:2px;white-space:nowrap;">🚗 ' + fmtDuration(legInfo.min) + ' · ' + (legInfo.km || 0).toFixed(1).replace('.', ',') + ' км</span>' : '';
+            // Есть ли координаты у задачи (иначе адрес не найден картой)
+            var _hasCoords = (t.lat != null && t.lng != null);
+            if (!_hasCoords && t.o) { var _o = OBJ_MAP[t.o]; if (_o && _o.lat && _o.lng) _hasCoords = true; }
+            if (!_hasCoords && t.addr) { var _gc = getTaskCoords(t.addr); if (_gc) _hasCoords = true; }
+            var tileLegHtml;
+            if (legInfo) {
+              tileLegHtml = '<span class="tile-leg" style="display:block;font-size:10px;color:#2563eb;font-weight:600;margin-top:2px;white-space:nowrap;">🚗 ' + fmtDuration(legInfo.min) + ' · ' + (legInfo.km || 0).toFixed(1).replace('.', ',') + ' км</span>';
+            } else if (!_hasCoords) {
+              tileLegHtml = '<span class="tile-leg" style="display:block;font-size:10px;color:#dc2626;font-weight:600;margin-top:2px;white-space:nowrap;">⚠ Адрес не найден</span>';
+            } else {
+              tileLegHtml = '';
+            }
             html += '<div class="tile t-' + col + '" draggable="' + draggable + '" data-action="edit-task" data-tid="' + t.id + '" title="Нажмите для редактирования задания">' + badges + '<span class="tw">' + esc(w ? w.name : '?') + (t.volume ? ' ×' + t.volume : '') + '</span><span class="th">' + esc(addrOf(t)) + ' · ' + fmtH(taskHours(t)) + 'ч</span>' + permitLine + tileLegHtml + '<label class="tile-chk" onmousedown="event.stopPropagation()" ondragstart="return false"><input type="checkbox" data-action="toggle-done" data-tid="' + t.id + '"' + (isDone(t) ? ' checked' : '') + (S.role === 'viewer' ? ' disabled' : '') + '><span class="tile-chk-box"></span></label></div>';
           }
         });
@@ -1216,12 +1301,13 @@
       if (TASKS_DB) { TASKS_DB.updateTask(t.id, t); }
       invalidateRouteCache(oldM, oldOff);
       invalidateRouteCache(newMaster, newOff);
+      logAction('Перемещение задачи', (target ? target.name : '?') + ': ' + moved.join(', '));
       drawCalendarGrid();
       var load = loadForDay(newMaster, newOff);
-      if (load > CAP) {
-        toast('warn', '🛑 Аналитика помощника : Внимание! Перегрузка мастера ' + (target ? target.name : '') + ' до ' + fmtH(load) + ' ч (при норме ' + CAP + ' ч). Предлагаем перенести задачу на другой день или заменить мастера!');
+      if (load > dayCapacity(newOff)) {
+        toast('warn', '🛑 Аналитика помощника : Внимание! Перегрузка мастера ' + (target ? target.name : '') + ' до ' + fmtH(load) + ' ч (при норме ' + fmtH(dayCapacity(newOff)) + ' ч). Предлагаем перенести задачу на другой день или заменить мастера!');
       } else {
-        toast('ok', '💡 Аналитика помощника : Перенос успешно выполнен. Текущая загрузка мастера ' + (target ? target.name : '') + ' на этот день составляет ' + fmtH(load) + ' ч / ' + CAP + ' ч.');
+        toast('ok', '💡 Аналитика помощника : Перенос успешно выполнен. Текущая загрузка мастера ' + (target ? target.name : '') + ' на этот день составляет ' + fmtH(load) + ' ч / ' + fmtH(dayCapacity(newOff)) + ' ч.');
       }
     }
   }
@@ -1418,7 +1504,7 @@
     visibleMasters().forEach(function (m) {
       for (var off = -7; off <= 14; off++) {
         var load = loadForDay(m.id, off);
-        while (load > CAP) {
+        while (load > dayCapacity(off)) {
           var dayTasks = S.tasks.filter(function (t) { return t.m === m.id && t.d === off && !isDone(t); }).sort(function (a, b) { return b.dl - a.dl; });
           if (!dayTasks.length) break;
           dayTasks[0].d = off + 1; fixes++;
@@ -1448,7 +1534,7 @@
               });
               if (near.length && adj !== off) {
                 var load = loadForDay(m.id, adj);
-                if (load + taskHours(t) <= CAP) { t.d = adj; edits++; }
+                if (load + taskHours(t) <= dayCapacity(adj)) { t.d = adj; edits++; }
               }
             });
           }
@@ -1489,8 +1575,8 @@
         
         for (var d = 0; d <= 90; d++) {
           var curLoad = dayLoad[d] || 0;
-          if (curLoad > 0 && curLoad + h > CAP) continue;
-          if (curLoad + h > CAP && curLoad > 0) continue;
+          if (curLoad > 0 && curLoad + h > dayCapacity(d)) continue;
+          if (curLoad + h > dayCapacity(d) && curLoad > 0) continue;
           
           var penalty = Math.abs(d - prefDay) * 10;
           
@@ -1573,7 +1659,6 @@
     var prov = S.mapProvider || 'osrm';
     var provSelHTML = '<div style="display:flex;align-items:center;gap:6px;margin-left:auto;"><span style="font-size:12px;color:var(--ink);font-weight:700;">Выбор карты:</span><select id="map-provider-sel" style="padding:5px 10px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;background:#fff;color:var(--ink);font-weight:700;cursor:pointer;">' +
       '<option value="osrm"' + (prov === 'osrm' ? ' selected' : '') + '>OpenStreetMap</option>' +
-      '<option value="valhalla"' + (prov === 'valhalla' ? ' selected' : '') + '>Valhalla — объезд закрытых' + ((window.SP_CONFIG && SP_CONFIG.stadiaApiKey) ? ' ✅' : ' (нужен ключ)') + '</option>' +
       '<option value="yandex"' + (prov === 'yandex' ? ' selected' : '') + '>Яндекс карта</option>' +
     '</select></div>';
 
@@ -1586,6 +1671,7 @@
         '<input type="date" id="map-date-sel" value="' + key(offToDate(off)) + '" style="padding:5px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:var(--ink);font-weight:600;cursor:pointer;" title="Выбрать любую дату для просмотра маршрута">' +
       '</div>' +
       (S.role === 'viewer' ? '' : '<button class="btn sm" id="btn-draw-closure" title="Отметить закрытый участок дороги на карте" style="background:#dc2626;color:#fff;border-color:#dc2626;">🚧 Закрытие</button>') +
+      (S.role === 'viewer' ? '' : '<button class="btn sm" id="btn-delete-closure" style="display:none;background:#b91c1c;color:#fff;border-color:#b91c1c;" title="Удалить выбранный закрытый участок дороги">🗑 Удалить выбранное</button>') +
       (S.role === 'viewer' ? '<span style="font-size:12px;color:var(--muted);font-weight:600;">👁 Режим просмотра</span>' : '<button class="btn primary" id="btn-build-route" data-action="build-route" disabled style="opacity:.5;cursor:not-allowed;">' + IC.route + ' Оптимизация маршрутов</button>') +
       '<div class="spacer"></div>' +
       provSelHTML +
@@ -1704,6 +1790,12 @@
         toast('warn', 'Карта ещё загружается...');
       }
     };
+    var delClosureBtn = document.getElementById('btn-delete-closure');
+    if (delClosureBtn) delClosureBtn.onclick = function(e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      if (ymState.leafletMap) deleteSelectedClosure(ymState.leafletMap);
+      else toast('warn', 'Карта ещё загружается...');
+    };
     drawMap(pts);
     var mSel = document.getElementById('map-master-sel');
     if (mSel) mSel.addEventListener('change', function (e) { S.mapMaster = e.target.value; renderMap(); });
@@ -1768,7 +1860,7 @@
     });
     var url = 'https://yandex.ru/map-widget/v1/?rtext=' + parts.join('~') + '&rtt=auto';
     // Всегда включаем слой трафика (пробки, ремонтные работы, закрытия дорог)
-    url += '&l=map%2Ctrf%2Ctrfc&trf=1&jams=1';
+    url += '&l=map';
     return url;
   }
 
@@ -1787,7 +1879,7 @@
     });
     var url = 'https://yandex.ru/maps/?rtext=' + parts.join('~') + '&rtt=auto';
     // Включаем слой трафика для просмотра закрытых участков
-    url += '&l=map%2Ctrf%2Ctrfc&trf=1&jams=1';
+    url += '&l=map';
     return url;
   }
 
@@ -1889,7 +1981,7 @@
           });
         }
     } else {
-      var baseMapUrl = "https://yandex.ru/map-widget/v1/?ll=" + base.lng + "," + base.lat + "&z=14&pt=" + base.lat + "," + base.lng + ",pm2rdm&l=map%2Ctrf%2Ctrfc&trf=1&jams=1";
+      var baseMapUrl = "https://yandex.ru/map-widget/v1/?ll=" + base.lng + "," + base.lat + "&z=14&pt=" + base.lat + "," + base.lng + ",pm2rdm&l=map";
       if (prov === "google") baseMapUrl = "https://www.google.com/maps?q=" + encodeURIComponent("Минск, " + base.name) + "&output=embed";
       else if (prov === "osm" || prov === "osrm" || prov === "graphhopper" || prov === "ors" || prov === "valhalla") baseMapUrl = "https://www.openstreetmap.org/export/embed.html?bbox=" + (base.lng - 0.05) + "," + (base.lat - 0.03) + "," + (base.lng + 0.05) + "," + (base.lat + 0.03) + "&layer=mapnik&marker=" + base.lat + "," + base.lng;
       else if (prov === "2gis") baseMapUrl = "https://2gis.by/minsk?m=" + base.lng + "%2C" + base.lat + "%2F14";
@@ -2115,20 +2207,26 @@
     var btn = document.getElementById('btn-draw-closure');
     if (btn) { btn.textContent = '✓ Завершить'; btn.style.background = '#16a34a'; }
     ymState.drawPoints = [];
-    toast('info', '🚧 Кликайте по карте, чтобы отметить закрытый участок дороги. Двойной клик — завершить.');
     ymState._tempMarkers = [];
+    ymState._lastClosureLL = null;
+    toast('info', '🚧 Кликайте по карте, расставляя точки закрытого участка. Готово — нажмите «✓ Завершить» (нужно ≥ 2 точек).');
     map._closureClickHandler = function(e) {
-      ymState.drawPoints.push([e.latlng.lat, e.latlng.lng]);
-      if (ymState._tempLine) { try { ymState._tempLine.remove(); } catch(ex) {} }
+      var ll = [e.latlng.lat, e.latlng.lng];
+      // Защита от случайного двойного клика: пропускаем клик в ту же точку подряд
+      if (ymState._lastClosureLL) {
+        var dx = ymState._lastClosureLL[0] - ll[0], dy = ymState._lastClosureLL[1] - ll[1];
+        if (dx * dx + dy * dy < 1e-12) return;
+      }
+      ymState._lastClosureLL = ll;
+      ymState.drawPoints.push(ll);
+      if (ymState._tempLine) { try { ymState._tempLine.remove(); } catch (ex) {} }
       if (ymState.drawPoints.length >= 2) {
         ymState._tempLine = window.L.polyline(ymState.drawPoints, { color: '#dc2626', weight: 5, opacity: 0.8, dashArray: '6,4' }).addTo(map);
       }
       var cm = window.L.circleMarker(e.latlng, { radius: 5, color: '#dc2626', fillColor: '#fff', fillOpacity: 1 }).addTo(map);
       ymState._tempMarkers.push(cm);
     };
-    map._closureDblClickHandler = function() { finishDrawingClosure(map); };
     map.on('click', map._closureClickHandler);
-    map.on('dblclick', map._closureDblClickHandler);
     map.doubleClickZoom.disable();
   }
 
@@ -2138,24 +2236,24 @@
     var btn = document.getElementById('btn-draw-closure');
     if (btn) { btn.textContent = '🚧 Закрытие'; btn.style.background = '#dc2626'; }
     map.off('click', map._closureClickHandler);
-    map.off('dblclick', map._closureDblClickHandler);
     map.doubleClickZoom.enable();
-    if (ymState._tempLine) { try { ymState._tempLine.remove(); } catch(e) {} ymState._tempLine = null; }
-    // Удаляем все временные точки-маркеры
-    if (ymState._tempMarkers) { ymState._tempMarkers.forEach(function(m) { try { m.remove(); } catch(e) {} }); ymState._tempMarkers = []; }
+    if (ymState._tempLine) { try { ymState._tempLine.remove(); } catch (e) {} ymState._tempLine = null; }
+    if (ymState._tempMarkers) { ymState._tempMarkers.forEach(function (m) { try { m.remove(); } catch (e) {} }); ymState._tempMarkers = []; }
     if (ymState.drawPoints.length >= 2) {
       var mc = getManualClosures();
       var name = 'Закрытие №' + (mc.length + 1);
       var closure = { latlngs: ymState.drawPoints.slice(), name: name, type: 'manual', manual: true };
       ymState.roadClosures.push(closure);
-      var mc = getManualClosures();
       mc.push(closure);
       saveManualClosures(mc);
       showRoadClosures(map);
-      toast('ok', '✓ Закрытый участок добавлен. Маршрут будет строиться в объезд.');
-      logAction('Добавление закрытия дороги', name || 'Ручная разметка');
+      toast('ok', '✓ Закрытый участок добавлен (' + ymState.drawPoints.length + ' точек). Маршрут будет строиться в объезд.');
+      logAction('Добавление закрытия дороги', name);
+    } else {
+      toast('warn', 'Нужно минимум 2 точки — участок не сохранён.');
     }
     ymState.drawPoints = [];
+    ymState._lastClosureLL = null;
   }
 
   function loadManualClosures() {
@@ -2229,23 +2327,58 @@
   function showRoadClosures(map) {
     if (ymState.closureLayers) { ymState.closureLayers.forEach(function(l) { try { l.remove(); } catch(e) {} }); }
     ymState.closureLayers = [];
-    ymState.roadClosures.forEach(function(c, idx) {
-      var line = window.L.polyline(c.latlngs, { color: '#dc2626', weight: c.manual ? 6 : 4, opacity: c.manual ? 0.8 : 0.5, dashArray: '6,4' }).addTo(map);
-      line.bindTooltip('🚧 ' + c.name + (c.manual ? ' (ручная разметка — клик для удаления)' : ' (из OSM)'), { sticky: true });
+    ymState.roadClosures.forEach(function(c) {
+      var isSelected = ymState.selectedClosure === c;
+      var style;
+      if (c.manual && isSelected) {
+        style = { color: '#16a34a', weight: 9, opacity: 1 };             // ВЫБРАНО — зелёный, сплошной
+      } else if (c.manual) {
+        style = { color: '#dc2626', weight: 6, opacity: 0.8, dashArray: '6,4' };
+      } else {
+        style = { color: '#dc2626', weight: 4, opacity: 0.5, dashArray: '6,4' };
+      }
+      var line = window.L.polyline(c.latlngs, style).addTo(map);
+      var tip = '🚧 ' + c.name + (c.manual ? (isSelected ? ' (выбрано — нажмите «🗑 Удалить выбранное»)' : ' — нажмите, чтобы выбрать') : ' (из OSM)');
+      line.bindTooltip(tip, { sticky: true });
       if (c.manual) {
         line.on('click', function() {
-          if (window.confirm('Удалить закрытый участок "' + c.name + '"?')) {
-            ymState.roadClosures = ymState.roadClosures.filter(function(r) { return r !== c; });
-            var mc = getManualClosures();
-            mc = mc.filter(function(r) { return r.name !== c.name || JSON.stringify(r.latlngs) !== JSON.stringify(c.latlngs); });
-            saveManualClosures(mc);
-            showRoadClosures(map);
-            toast('ok', 'Закрытый участок удалён');
-          }
+          // клик по заметке = ВЫБОР (не удаление); повторный клик — снятие выбора
+          ymState.selectedClosure = (ymState.selectedClosure === c) ? null : c;
+          showRoadClosures(map);
+          updateClosureDeleteBtn();
         });
       }
       ymState.closureLayers.push(line);
     });
+  }
+
+  // Показывает/прячет кнопку удаления выбранного закрытия
+  function updateClosureDeleteBtn() {
+    var btn = document.getElementById('btn-delete-closure');
+    if (!btn) return;
+    if (ymState.selectedClosure) {
+      btn.style.display = '';
+      btn.textContent = '🗑 Удалить «' + (ymState.selectedClosure.name || 'закрытие') + '»';
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+
+  // Удаляет выбранное закрытие (вызывается кнопкой «🗑 Удалить выбранное»)
+  function deleteSelectedClosure(map) {
+    if (!ymState.selectedClosure) { toast('warn', 'Сначала выберите закрытый участок — кликните по нему.'); return; }
+    var c = ymState.selectedClosure;
+    ymState.roadClosures = ymState.roadClosures.filter(function(r) { return r !== c; });
+    if (c.manual) {
+      var mc = getManualClosures();
+      mc = mc.filter(function(r) { return r.name !== c.name || JSON.stringify(r.latlngs) !== JSON.stringify(c.latlngs); });
+      saveManualClosures(mc);
+    }
+    ymState.selectedClosure = null;
+    showRoadClosures(map);
+    updateClosureDeleteBtn();
+    toast('ok', '✓ Закрытый участок удалён');
+    logAction('Удаление закрытия дороги', c.name || '');
   }
 
   // === Рендер Leaflet карты для OSRM / GraphHopper / OpenRouteService ===
@@ -2258,6 +2391,9 @@
       ymState.leafletMap = null;
       ymState.leafletRouteLayer = null;
       ymState.leafletArrows = [];
+      ymState.drawingClosure = false;   // сброс режима рисования при пересоздании карты
+      ymState.drawPoints = [];
+      ymState.selectedClosure = null;   // сброс выбора закрытия
 
       setTimeout(function() {
         var mapEl = document.getElementById('leaflet-canvas');
@@ -2555,6 +2691,25 @@
   // Геокодирование через официальный Nominatim OpenStreetMap.
   // Ищет адрес ПРЯМО на русском. Перебирает варианты запроса, т.к. Nominatim
   // плохо находит улицу без типа (надо «улица Ленина», а не «Ленина»).
+  // Универсальный геокодер: сначала Яндекс (лучше находит адреса Минска на русском),
+  // при неудаче/недоступности — Nominatim (OSM). Координаты затем использует OSRM для маршрута.
+  function geocodeAddressUnified(addr) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      function nominatim() { geocodeAddressNominatim(addr).then(function (c) { if (!settled) { settled = true; resolve(c); } }); }
+      function tryYandex() {
+        geocodeAddr(addr).then(function (c) {
+          if (settled) return;
+          if (c && c[0] != null) { settled = true; resolve({ lat: c[0], lng: c[1] }); }
+          else nominatim();
+        });
+      }
+      if (window.ymaps && window.ymaps.geocode) tryYandex();
+      else ensureYandex(tryYandex, nominatim);
+      setTimeout(function () { if (!settled) { settled = true; nominatim(); } }, 4000); // защита от зависания Яндекса
+    });
+  }
+
   function geocodeAddressNominatim(addr) {
     if (!addr || addr === '?') return Promise.resolve(null);
     var stored = getTaskCoords(addr);
@@ -2650,10 +2805,8 @@
   }
 
   // Полигоны закрытий для Valhalla exclude_polygons (ВСЕ источники: OSM + ручные).
-  // Возвращает массив колец GeoJSON [lng,lat]: [[[lng,lat],...], ...].
-  // Valhalla исключает из маршрута ВСЕ дороги, пересекающие эти полигоны.
   function buildExcludePolygons() {
-    var bufferDeg = 0.0009; // ~100 м буфер вокруг закрытия
+    var bufferDeg = 0.0009;
     var polygons = [];
     ymState.roadClosures.forEach(function(c) {
       if (!c.latlngs || c.latlngs.length < 1) return;
@@ -2662,7 +2815,7 @@
         if (p[0] < minLat) minLat = p[0]; if (p[0] > maxLat) maxLat = p[0];
         if (p[1] < minLng) minLng = p[1]; if (p[1] > maxLng) maxLng = p[1];
       });
-      if (minLat === maxLat) { minLat -= 0.0003; maxLat += 0.0003; } // точка -> квадратик
+      if (minLat === maxLat) { minLat -= 0.0003; maxLat += 0.0003; }
       if (minLng === maxLng) { minLng -= 0.0003; maxLng += 0.0003; }
       minLat -= bufferDeg; maxLat += bufferDeg; minLng -= bufferDeg; maxLng += bufferDeg;
       polygons.push([[minLng, minLat], [maxLng, minLat], [maxLng, maxLat], [minLng, maxLat], [minLng, minLat]]);
@@ -2704,10 +2857,8 @@
       coords.push([base.lng, base.lat]);
 
       if (provider === 'valhalla') {
-        // Valhalla (Stadia Maps) — РОДНОЙ объезд закрытых дорог через exclude_polygons.
         var stadiaKey = (window.SP_CONFIG && SP_CONFIG.stadiaApiKey) || '';
         if (!stadiaKey) {
-          // Ключа нет — откат на OSRM с улучшенным via-point объездом
           console.warn('Stadia API ключ не задан (config.stadiaApiKey) — используется OSRM');
           fetchOSMRouteGeometry('osrm', resolvedPoints, base, callback);
           return;
@@ -2719,7 +2870,6 @@
         var vBody = { costing: 'auto', shape_format: 'geojson', units: 'kilometers', locations: vLocs };
         var excludePolys = buildExcludePolygons();
         if (excludePolys.length) vBody.exclude_polygons = excludePolys;
-        // optimized_route — если >1 точки (оптимизация порядка = TSP + объезд), иначе route
         var vEndpoint = validPoints.length > 1 ? '/optimized_route/v1' : '/route/v1';
         fetch(vApiUrl + vEndpoint + '?api_key=' + stadiaKey, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(vBody)
@@ -2731,14 +2881,12 @@
           var trip = res.trip;
           var totalKm = (trip.summary && trip.summary.length) ? trip.summary.length : 0;
           var totalMin = Math.round(((trip.summary && trip.summary.time) ? trip.summary.time : 0) / 60);
-          // Склеиваем геометрию из legs (shape в geojson [lng,lat])
           var geom = [];
           (trip.legs || []).forEach(function(leg, li) {
             if (leg.shape && leg.shape.length) {
               leg.shape.forEach(function(c, ci) { if (li === 0 || ci > 0) geom.push(c); });
             }
           });
-          // Оптимальный порядок точек: trip.locations в выходном порядке, original_index — входной
           var waypoints = [];
           if (res.trip.locations && res.trip.locations.length) {
             var outPos = {};
@@ -3023,23 +3171,14 @@
             updateDayListCards(ordered);
             refreshMapCards(ordered);
 
-            // === Извлечение данных из DOM панели маршрута Google ===
-            extractGoogleRouteDataFromDOM(canvas, function(domData) {
-              if (domData) {
-                setRouteInfo({ km: domData.km, jamsMin: domData.jamsMin, freeMin: domData.freeMin || domData.jamsMin, count: ordered.length });
-                toast("ok", "✓ Маршрут оптимизирован! Данные извлечены из виджета Google Maps.");
-              } else {
-                // Fallback: данные из Directions API
-                setRouteInfo({ km: totalKm, jamsMin: jamsMin, freeMin: freeMin, count: ordered.length });
-                toast("ok", "✓ Маршрут оптимизирован для Google Maps! Нумерация и карточки обновлены.");
-              }
-
-              var dirUrl = buildGoogleDirUrl(routeItems);
-              var lp = document.createElement('div');
-              lp.className = 'route-link-panel';
-              lp.innerHTML = '<span>🚩 <b>База</b> → ' + ordered.length + ' объектов (<b>Google Maps</b>) → <b>База</b></span><div class="route-actions"><a class="btn sm primary" target="_blank" rel="noopener" href="' + dirUrl + '" style="background:#10b981;border-color:#10b981;">↗ Открыть в Google Maps</a></div>';
-              canvas.appendChild(lp);
-            });
+            // Данные маршрута — из Directions API
+            setRouteInfo({ km: totalKm, jamsMin: jamsMin, freeMin: freeMin, count: ordered.length });
+            toast("ok", "✓ Маршрут оптимизирован для Google Maps! Нумерация и карточки обновлены.");
+            var dirUrl = buildGoogleDirUrl(routeItems);
+            var lp = document.createElement('div');
+            lp.className = 'route-link-panel';
+            lp.innerHTML = '<span>🚩 <b>База</b> → ' + ordered.length + ' объектов (<b>Google Maps</b>) → <b>База</b></span><div class="route-actions"><a class="btn sm primary" target="_blank" rel="noopener" href="' + dirUrl + '" style="background:#10b981;border-color:#10b981;">↗ Открыть в Google Maps</a></div>';
+            canvas.appendChild(lp);
           } else {
             clearTimeout(fallbackTimeoutId);
             updateFallbackRouteInfo(ordered);
@@ -3073,7 +3212,6 @@
       }
       updateDayListCards(ordered);
       refreshMapCards(ordered);
-
       fetchOSMRouteGeometry(prov, ordered, base, function(result) {
         clearTimeout(fallbackTimeoutId);
         if (result.ok && result.geometry.length > 0) {
@@ -3091,18 +3229,13 @@
             lp.className = 'route-link-panel';
             lp.innerHTML = '<span>🚩 <b>База</b> → ' + ordered.length + ' объектов (<b>' + provName + '</b>) → <b>База</b></span><div class="route-actions"><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#e2e8f0;cursor:pointer"><input type="checkbox" id="cb-car-anim" style="width:15px;height:15px;cursor:pointer"> 🚗 Авто</label><button id="btn-fullscreen-route" class="btn sm primary" style="background:#10b981;border-color:#10b981;">↗ Открыть на весь экран</button></div>';
             canvas2.appendChild(lp);
-            // Данные для полноэкранного просмотра: маркеры (база → точки → база) + геометрия маршрута
             var fsMarkers = [{ lat: base.lat, lng: base.lng, addr: base.name, mcol: '#0f2740', label: 'Б' }];
             ordered.forEach(function(p, i) { fsMarkers.push({ lat: p.lat, lng: p.lng, addr: p.addr, mcol: p.mcol, label: String(i + 1) }); });
             fsMarkers.push({ lat: base.lat, lng: base.lng, addr: base.name, mcol: '#0f2740', label: 'Б' });
-            var fsRoute = latlngs;
             var btnFs = document.getElementById('btn-fullscreen-route');
-            if (btnFs) btnFs.addEventListener('click', function() { openRouteFullscreen(fsMarkers, fsRoute); });
+            if (btnFs) btnFs.addEventListener('click', function() { openRouteFullscreen(fsMarkers, latlngs); });
           });
-
-          // === Переупорядочиваем точки по оптимальному порядку из /trip (только OSRM) ===
           if ((prov === 'osrm' || prov === 'valhalla') && result.waypoints && result.waypoints.length >= ordered.length + 1) {
-            // waypoints[i] соответствует входной координате i: [0]=база, [1..N]=задания
             var wpOrder = [];
             for (var wi = 1; wi <= ordered.length; wi++) {
               if (result.waypoints[wi] && result.waypoints[wi].waypoint_index != null) {
@@ -3112,13 +3245,11 @@
             if (wpOrder.length === ordered.length) {
               wpOrder.sort(function (a, b) { return a.pos - b.pos; });
               ordered = wpOrder.map(function (x) { return x.task; });
-              // Пересобираем routeItems в оптимальном порядке
               routeItems = [base];
               ordered.forEach(function (p) { routeItems.push(p); });
               routeItems.push(base);
             }
           }
-
           if (result.legs && result.legs.length > 0) {
             var lastLegRetMin = 0, lastLegRetKm = 0;
             ordered.forEach(function(p, idx) {
@@ -3134,7 +3265,6 @@
                 if (st) { st.travelKm = p.travelKm; st.travelKmText = p.travelKmText; st.travelMin = p.travelMin; st.travelText = p.travelText; if (TASKS_DB) TASKS_DB.updateTask(st.id, st); }
               }
             });
-            // Возврат на базу — последний отрезок: от последнего задания до базы
             if (result.legs.length > ordered.length) {
               var retLeg = result.legs[ordered.length];
               var retKm = prov === 'valhalla' ? ((retLeg.summary || {}).length || 0) : ((retLeg.distance || 0) / 1000);
@@ -3152,16 +3282,12 @@
           }
           updateDayListCards(ordered);
           refreshMapCards(ordered);
-          // Перерисовываем маркеры на карте с новыми номерами (1,2,3 по оптимизированному порядку)
           redrawOptimizedMarkers(ordered);
           var rawMin = result.min;
-          // На OpenStreetMap к общему времени скрыто прибавляется +10 минут (и к пробкам, и без)
           var addTen = prov === 'osrm' ? 10 : 0;
           var jamsMin = rawMin + addTen;
           var freeMin = Math.round(rawMin * 0.85) + addTen;
-          console.log('📊 ' + provName + ': ' + result.km.toFixed(2) + ' км, ' + jamsMin + ' мин');
           setRouteInfo({ km: result.km, jamsMin: jamsMin, freeMin: freeMin, count: ordered.length });
-          // Запоминаем время маршрута для мастера и дня — только на OpenStreetMap
           if (prov === 'osrm' || prov === 'valhalla') {
             var savedRT = saveRouteTime(S.mapMaster, S.mapOff, jamsMin, result.km, lastLegRetMin, lastLegRetKm);
             toast("ok", "✓ " + provName + ": " + result.km.toFixed(1).replace('.', ',') + " км, " + jamsMin + " мин." + (savedRT ? ' · время записано в планирование' : ''));
@@ -3174,14 +3300,10 @@
         }
       });
     } else {
-      // === Яндекс.Карты: оптимизация через OSRM + отображение через iframe (без API-ключа) ===
-      // Яндекс JS API требует ключ для маршрутов, поэтому:
-      // 1. OSRM /trip — оптимизация порядка и расчёт расстояния/времени
-      // 2. iframe Яндекс.Карт — отображение маршрута (бесплатно)
+      // === Яндекс.Карты: оптимизация через OSRM + отображение через iframe ===
       fetchOSMRouteGeometry('osrm', ordered, base, function(result) {
         clearTimeout(fallbackTimeoutId);
         if (result.ok && result.geometry.length > 0) {
-          // Переупорядочивание по оптимальному порядку из /trip
           if (result.waypoints && result.waypoints.length >= ordered.length + 1) {
             var wpOrder = [];
             for (var wi = 1; wi <= ordered.length; wi++) {
@@ -3197,7 +3319,6 @@
               routeItems.push(base);
             }
           }
-          // Записываем статистику в карточки
           if (result.legs && result.legs.length > 0) {
             ordered.forEach(function(p, idx) {
               if (idx < result.legs.length) {
@@ -3213,12 +3334,10 @@
           }
           updateDayListCards(ordered);
           refreshMapCards(ordered);
-          // Время маршрута (с +10 мин как на OpenStreetMap)
           var jamsMin = result.min + 10;
           var freeMin = Math.round(result.min * 0.85) + 10;
           setRouteInfo({ km: result.km, jamsMin: jamsMin, freeMin: freeMin, count: ordered.length });
           saveRouteTime(S.mapMaster, S.mapOff, jamsMin, result.km);
-          // Отображение через iframe Яндекс.Карт (бесплатно, без ключа)
           renderProviderFrame("yandex", routeItems, noJam);
           toast("ok", "✓ Яндекс.Карты: " + result.km.toFixed(1).replace('.', ',') + " км, " + jamsMin + " мин. (расчёт OSRM)");
         } else {
@@ -3229,96 +3348,19 @@
       });
     }
 
-    function renderProviderFrame(pr, items, noJam) {
+    function renderProviderFrame(pr, items, nj) {
       var url = "", dirUrl = "", name = "";
       if (pr === "google") { url = buildGoogleWidgetUrl(items); dirUrl = buildGoogleDirUrl(items); name = "Google Maps"; }
       else if (pr === "osm") { url = buildOsmWidgetUrl(items); dirUrl = buildOsmDirUrl(items); name = "OpenStreetMap"; }
       else if (pr === "2gis") { url = build2GisWidgetUrl(items); dirUrl = build2GisDirUrl(items); name = "2ГИС"; }
-      else { url = buildYandexWidgetUrl(items, noJam); dirUrl = buildYandexDirUrl(items, noJam); name = "Яндекс.Карты"; }
-
+      else { url = buildYandexWidgetUrl(items, nj); dirUrl = buildYandexDirUrl(items, nj); name = "Яндекс.Карты"; }
       var panelActions = dirUrl ? "<div class='route-actions'><a class='btn sm primary' target='_blank' rel='noopener' href='" + dirUrl + "' style='background:#10b981;border-color:#10b981;'>↗ Открыть в " + name + "</a></div>" : "";
-      canvas.innerHTML = "<iframe class='route-frame' src='" + url + "' allowfullscreen loading='lazy' title='Оптимизированный маршрут (" + name + ")'></iframe>" +
-        "<div class='route-link-panel'>" +
-          "<span>🚩 <b>База (закреплена)</b> → " + (items.length - 2) + " объектов (<b>сервис: " + name + "</b>) → <b>База (закреплена)</b></span>" + panelActions +
-        "</div>";
+      canvas.style.position = "relative";
+      canvas.innerHTML = "<iframe class='route-frame' src='" + url + "' allowfullscreen loading='lazy' title='Маршрут (" + name + ")'></iframe><div class='route-link-panel'><span>🚩 <b>База</b> → " + (items.length - 2) + " объектов (<b>" + name + "</b>) → <b>База</b></span>" + panelActions + "</div>";
     }
   }
+
   function buildYandexRoute(n) { buildRoute(n); }
-
-  // Извлечение данных маршрута через multiRoute.model.getRoutes()[0].properties
-  // distance — в метрах, time — с пробками в секундах, timeWithoutTraffic — без пробок в секундах
-  // === Извлечение данных маршрута из DOM панели Яндекс.Карт ===
-  // Парсит км, время с пробками и без из HTML элементов виджета маршрута
-  // === Извлечение данных маршрута Google Maps из DOM ===
-  function extractGoogleRouteDataFromDOM(container, callback) {
-    var attempts = 0;
-    var maxAttempts = 15;
-
-    function tryExtract() {
-      attempts++;
-      var allElements = container.querySelectorAll('*');
-      var kmVal = null, timeText = null;
-
-      for (var i = 0; i < allElements.length; i++) {
-        var el = allElements[i];
-        var text = (el.textContent || '').trim();
-        if (!text || text.length > 60) continue;
-
-        // Расстояние: "15.2 km" или "15,2 км" (Google может быть на англ.)
-        if (kmVal === null) {
-          var kmMatch = text.match(/^([\d.,]+)\s*(?:km|км)$/i);
-          if (kmMatch) kmVal = parseFloat(kmMatch[1].replace(',', '.'));
-        }
-
-        // Время: "42 min", "1 hr 15 min", "1 ч 15 мин", "15 мин"
-        if (timeText === null) {
-          if (text.match(/^\d/) && text.match(/(?:min|мин|hr|ч)\b/i) && !text.match(/destination|назнач/i)) {
-            timeText = text;
-          }
-        }
-      }
-
-      // Дополнительный поиск по всему тексту
-      if (kmVal === null) {
-        var fullText = container.textContent || '';
-        var kmM = fullText.match(/([\d.,]+)\s*(?:km|км)/i);
-        if (kmM) kmVal = parseFloat(kmM[1].replace(',', '.'));
-      }
-
-      if (kmVal !== null && kmVal > 0) {
-        function parseMinutes(txt) {
-          if (!txt) return 0;
-          var h = txt.match(/(\d+)\s*(?:hr|ч|hour)/i);
-          var m = txt.match(/(\d+)\s*(?:min|мин)/i);
-          var total = 0;
-          if (h) total += parseInt(h[1], 10) * 60;
-          if (m) total += parseInt(m[1], 10);
-          return total || Math.max(1, Math.round(kmVal / 30 * 60));
-        }
-
-        var freeMin = parseMinutes(timeText);
-        // Google показывает одно время (с учётом текущей ситуации), используем как "с пробками"
-        var jamsMin = freeMin;
-
-        console.log('📊 Данные маршрута из DOM виджета Google Maps:');
-        console.log('   📍 Расстояние:', kmVal.toFixed(2), 'км');
-        console.log('   🚗 Время в пути:', jamsMin, 'мин (' + timeText + ')');
-        console.log('   🛣️ Время (расчёт без пробок):', Math.round(freeMin * 0.85), 'мин');
-
-        callback({ km: kmVal, jamsMin: jamsMin, freeMin: Math.round(freeMin * 0.85) });
-        return;
-      }
-
-      if (attempts < maxAttempts) {
-        setTimeout(tryExtract, 500);
-      } else {
-        console.warn('⚠ Данные маршрута Google не найдены в DOM');
-        callback(null);
-      }
-    }
-
-    setTimeout(tryExtract, 1000);
-  }
 
   function extractRouteDataFromDOM(container, callback) {
     var attempts = 0;
@@ -3636,11 +3678,14 @@
   function refreshMapCards(pts) {
     var mlist = document.getElementById("mlist");
     if (!mlist) return;
+    // Неактивные (выключенные кликом) задания остаются в списке серыми
+    var inactive = (ymState.inactivePts && ymState.inactivePts.length) ? ymState.inactivePts : [];
+    if ((!pts || !pts.length) && !inactive.length) {
+      mlist.innerHTML = "<div class='empty'>На этот день заданий нет</div>";
+      return;
+    }
     var html = "";
-    if (!pts.length) {
-      html = "<div class='empty'>На этот день заданий нет</div>";
-    } else {
-      html = "";
+    if (pts && pts.length) {
       pts.forEach(function (p, i) {
         var fromLabel = (i === 0) ? "от базы до задания 1" : ("от задания " + i + " до задания " + (i + 1));
         var distStr = p.travelKmText ? "<b>" + p.travelKmText + "</b>" : (p.travelKm != null ? "<b>" + p.travelKm.toFixed(1).replace(".", ",") + " км</b>" : "");
@@ -3657,13 +3702,23 @@
           "<div class='pin' style='background:" + p.mcol + "'>" + (i + 1) + "</div>" +
           "<div style='flex:1;min-width:0'>" +
             "<div style='font-weight:700;color:var(--ink);font-size:12.5px;margin-bottom:3px'>📍 " + esc(p.addr) + "</div>" +
-
             "<div style='font-size:11.5px;color:var(--txt);margin-bottom:2px'>🔧 " + esc(p.work) + "</div>" +
             "<div style='font-size:11.5px;color:var(--muted);margin-bottom:2px'>⏱ Норма: <b>" + fmtH(p.norm) + " ч</b></div>" +
             "<div style='font-size:11.5px;color:var(--muted);margin-top:2px;'>" + routeInfoStr + "</div>" +
           "</div></div>";
       });
     }
+    // Неактивные задания — серые, без номера и маршрута; клик включает обратно
+    inactive.forEach(function (p) {
+      html += "<div class='mtask' data-mid='" + p.id + "' draggable='true' style='opacity:.5;'>" +
+        "<div class='mtask-grip' style='opacity:.5'>" + IC.grip + "</div>" +
+        "<div class='pin' style='background:#94a3b8;color:#fff'>○</div>" +
+        "<div style='flex:1;min-width:0'>" +
+          "<div style='font-weight:700;color:var(--muted);font-size:12.5px;margin-bottom:3px'>📍 " + esc(p.addr) + "</div>" +
+          "<div style='font-size:11.5px;color:var(--muted);margin-bottom:2px'>🔧 " + esc(p.work) + "</div>" +
+          "<div style='font-size:11.5px;color:var(--muted);'>⏸ Не в маршруте — нажмите, чтобы включить</div>" +
+        "</div></div>";
+    });
     mlist.innerHTML = html;
   }
 
@@ -4345,14 +4400,7 @@
     var embedUrl = 'https://www.google.com/maps/d/embed?mid=10qbguyGMSQpSVy8laN-837nqb1EUHR0';
 
     var html = '<div style="height:calc(100vh - 62px);width:100%;position:relative;display:flex;flex-direction:column;background:#e8eef3;">' +
-      '<div style="position:absolute;top:0;left:58px;right:0;height:67px;background:rgb(77, 105, 120);z-index:5;"></div>' +
       '<iframe src="' + embedUrl + '" allowfullscreen loading="lazy" title="Интерактивная карта сетей УП МИНГАЗ" style="flex:1;width:100%;height:100%;border:0;display:block;"></iframe>' +
-      '<div class="route-link-panel" style="position:absolute;left:50%;transform:translateX(-50%);top:11px;bottom:auto;z-index:10;display:flex;align-items:center;justify-content:center;text-align:center;border:1px solid rgba(255,255,255,0.22);background:rgba(15,39,64,0.92);backdrop-filter:blur(10px);border-radius:10px;padding:6px 20px;color:#e2e8f0;box-shadow:0 6px 18px -4px rgba(0,0,0,0.35);max-height:45px;white-space:nowrap;width:auto;min-width:0;">' +
-        '<span style="font-size:13px;display:flex;align-items:center;justify-content:center;text-align:center;gap:8px;flex:none;min-width:0;width:100%;">' +
-          '<span style="font-size:15px;flex:none;min-width:0;">🌐</span>' +
-          '<span style="flex:none;min-width:0;text-align:center;"><b>УП «МИНГАЗ»</b> — Карта сетей</span>' +
-        '</span>' +
-      '</div>' +
     '</div>';
 
     view.innerHTML = html;
@@ -4850,6 +4898,16 @@
     });
   }
 
+  // Надёжный разбор даты журнала: created_at из PostgreSQL BIGINT приходит СТРОКОЙ
+  function parseLogDate(v) {
+    if (v == null) return null;
+    if (typeof v === 'number') { var dn = new Date(v); return isNaN(dn.getTime()) ? null : dn; }
+    var str = String(v);
+    if (/^\d+$/.test(str)) { var dn2 = new Date(parseInt(str, 10)); return isNaN(dn2.getTime()) ? null : dn2; }
+    var d = new Date(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(str) ? str.replace(' ', 'T') : str);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   function renderLogsContent(logs) {
     var users = {}, actions = {};
     logs.forEach(function(l) {
@@ -4872,7 +4930,7 @@
     html += '</div>';
     html += '<table class="dt"><thead><tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Детали</th></tr></thead><tbody>';
     logs.forEach(function(l) {
-      var d = l.created_at ? new Date(l.created_at) : null;
+      var d = parseLogDate(l.created_at);
       var dStr = d ? d.getDate() + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear() + ' ' + d.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'}) : '\u2014';
       html += '<tr class="log-row" data-user="' + esc(l.user_name || '') + '" data-action="' + esc(l.action || '') + '" data-details="' + esc(l.details || '') + '">';
       html += '<td style="white-space:nowrap;font-size:12px;color:var(--muted)">' + dStr + '</td>';
@@ -5839,7 +5897,7 @@
       if (initLat != null && initLng != null) {
         finalizeSave(null);
       } else {
-        geocodeAddressNominatim(addr).then(finalizeSave);
+        geocodeAddressUnified(addr).then(finalizeSave);
       }
   }
 
