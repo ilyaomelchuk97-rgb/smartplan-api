@@ -585,7 +585,7 @@
 
   /* Уважение к настройке «уменьшить анимацию» */
   @media (prefers-reduced-motion:reduce){
-    *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+    *:not(.wx-scene):not(.wx-drop):not(.wx-flake):not(.wx-cloud):not(.wx-sun):not(.wx-sun-rays):not(.wx-sun-wrap):not(.wx-godrays):not(.wx-moon):not(.wx-moon-shadow):not(.wx-star){animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
     .ai-typing span{animation:aiWave 1.2s ease-in-out infinite!important}
   }
 
@@ -605,7 +605,8 @@
   #ai-chat-toggle svg{width:22px;height:22px}
   #ai-chat-window{position:fixed;bottom:75px;right:20px;width:380px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 120px);background:#fff;border-radius:16px;box-shadow:0 12px 50px rgba(0,0,0,.2);z-index:99999;display:none;flex-direction:column;overflow:hidden;animation:scaleIn .3s ease}
   #ai-chat-window.open{display:flex}
-  .ai-chat-h{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#0f2740,#1d4ed8);color:#fff}
+  .ai-chat-h{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#0f2740,#1d4ed8);color:#fff;cursor:grab}
+  .ai-chat-h:active{cursor:grabbing}
   .ai-chat-h .av-ai{width:36px;height:36px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none}
   .ai-chat-h .title-ai{font-size:15px;font-weight:700}
   .ai-chat-h .sub-ai{font-size:11px;color:#93c5fd}
@@ -652,7 +653,7 @@
   #date-popup .dp-overlay{position:fixed;inset:0;z-index:-1}
 
   /* ---------- ПОПАП ПОГОДЫ (выпадающий список) ---------- */
-  .weather-dropdown{max-height:0;opacity:0;overflow:hidden;padding:0 16px;margin-top:0;background:linear-gradient(160deg,#1e3a5f,#0f2740);color:#fff;border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.2);transition:max-height .45s cubic-bezier(.4,0,.2,1),opacity .35s ease,padding .35s ease,margin-top .35s ease}
+  .weather-dropdown{position:relative;max-height:0;opacity:0;overflow:hidden;padding:0 16px;margin-top:0;background:linear-gradient(160deg,#1e3a5f,#0f2740);color:#fff;border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.2);transition:max-height .45s cubic-bezier(.4,0,.2,1),opacity .35s ease,padding .35s ease,margin-top .35s ease}
   .weather-dropdown.open{max-height:360px;opacity:1;padding:16px;margin-top:8px}
   @keyframes wpFadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
   .weather-dropdown .wd-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
@@ -660,28 +661,76 @@
   .weather-dropdown .wd-sub{font-size:11px;color:#93c5fd}
   .weather-dropdown .wd-close{background:rgba(255,255,255,.15);border:none;color:#fff;font-size:16px;width:28px;height:28px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center}
   .weather-dropdown .wd-close:hover{background:rgba(255,255,255,.3)}
-  .weather-dropdown .wd-grid{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px}
+  .weather-dropdown .wd-grid{display:flex;gap:8px;overflow-x:auto;padding:5px 4px 8px 4px}
   .weather-dropdown .wd-day{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 10px;text-align:center;min-width:95px;transition:.3s;animation:wpDayIn .4s ease backwards;cursor:pointer;display:flex;flex-direction:column;align-items:center}
   @keyframes wpDayIn{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
-  .weather-dropdown .wd-day:hover{background:rgba(255,255,255,.15);transform:translateY(-3px)}
-  /* === Анимированная сцена погоды (v3) === */
+  .weather-dropdown .wd-day:hover{background:rgba(255,255,255,.18);transform:translateY(-3px)}
+  /* === Анимированная сцена погоды (v7 — чистый CSS, без эмодзи) === */
   .wx-scene{position:absolute;inset:0;overflow:hidden;border-radius:10px;z-index:0;pointer-events:none}
-  .wx-sun{position:absolute;border-radius:50%;animation:wxSunPulse 4s ease-in-out infinite}
-  .wx-sun:before{content:"";position:absolute;inset:-40%;border-radius:50%;background:inherit;filter:blur(12px);opacity:.5}
-  .wx-moon{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff,#e0e8f0 60%,#bcc8d8);box-shadow:0 0 18px 4px rgba(220,230,245,.35);animation:wxMoonFloat 6s ease-in-out infinite}
-  .wx-moon:before{content:"";position:absolute;width:28%;height:28%;top:18%;left:14%;border-radius:50%;background:rgba(0,0,0,.06);box-shadow:10px 7px 0 -1px rgba(0,0,0,.05),5px 14px 0 -2px rgba(0,0,0,.04)}
-  .wx-star{position:absolute;width:2px;height:2px;background:#fff;border-radius:50%;box-shadow:0 0 3px rgba(255,255,255,.8);animation:wxTwinkle 2.5s ease-in-out infinite}
-  .wx-cloud{position:absolute;background:rgba(255,255,255,.82);border-radius:100px;animation:wxCloudDrift 16s ease-in-out infinite alternate}
-  .wx-cloud:before{content:"";position:absolute;width:55%;height:140%;top:-55%;left:12%;border-radius:50%;background:inherit}
-  .wx-cloud:after{content:"";position:absolute;width:40%;height:110%;top:-38%;right:16%;border-radius:50%;background:inherit}
-  .wx-drop{position:absolute;width:3px;height:8px;border-radius:50% 50% 50% 50% / 65% 65% 35% 35%;background:linear-gradient(to bottom,rgba(150,180,220,.2),rgba(150,180,220,.85));box-shadow:0 0 2px rgba(150,180,220,.3);animation:wxDropFall .9s linear infinite}
-  .wx-flake{position:absolute;color:rgba(255,255,255,.9);font-size:9px;animation:wxFlakeFall 3s linear infinite}
-  @keyframes wxSunPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.12)}}
-  @keyframes wxMoonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
-  @keyframes wxTwinkle{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:1;transform:scale(1.3)}}
-  @keyframes wxCloudDrift{from{transform:translateX(-10px)}to{transform:translateX(10px)}}
-  @keyframes wxDropFall{0%{transform:translateY(-14px);opacity:0}8%{opacity:.7}85%{opacity:.7}100%{transform:translateY(82px);opacity:0}}
-  @keyframes wxFlakeFall{0%{transform:translateY(-10px) translateX(0);opacity:0}10%{opacity:.9}50%{transform:translateY(35px) translateX(4px)}90%{opacity:.9}100%{transform:translateY(82px) translateX(-3px);opacity:0}}to{background-position:3px 16px}}
+  .wx-scene *{-webkit-text-stroke:0 transparent;text-shadow:none;outline:none}
+
+  /* Солнце: светящийся диск + вращающиеся лучи + пульсация */
+  .wx-sun-wrap{position:absolute;width:66px;height:66px;animation:wxSunPulse 4s ease-in-out infinite}
+  .wx-sun{position:absolute;inset:13px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fffdf0,#ffe066 48%,#f59e0b);box-shadow:0 0 16px rgba(255,213,70,.9),0 0 38px rgba(255,200,70,.45)}
+  .wx-sun-wrap.dim .wx-sun{background:radial-gradient(circle at 35% 30%,#fef3c7,#fde68a 45%,#d1d5db 100%);box-shadow:0 0 12px rgba(220,200,100,.35)}
+  .wx-sun-wrap.evening .wx-sun{background:radial-gradient(circle at 35% 30%,#fff7ed,#fb923c 48%,#c2410c);box-shadow:0 0 16px rgba(251,146,60,.8),0 0 38px rgba(194,65,12,.4)}
+  .wx-sun-wrap.morning .wx-sun{background:radial-gradient(circle at 35% 30%,#fff7ed,#fdba74 48%,#ea580c);box-shadow:0 0 16px rgba(253,186,116,.7),0 0 38px rgba(234,88,12,.35)}
+  .wx-sun-rays{position:absolute;inset:0;border-radius:50%;background:repeating-conic-gradient(from 0deg,rgba(255,225,130,.9) 0 2.5deg,transparent 2.5deg 22.5deg);-webkit-mask:radial-gradient(circle,transparent 0 44%,#000 47% 94%,transparent 97%);mask:radial-gradient(circle,transparent 0 44%,#000 47% 94%,transparent 97%);animation:wxSunSpin 30s linear infinite}
+
+  /* Полупрозрачные толстые солнечные лучи (god rays) через весь блок — только при ясной погоде */
+  .wx-godrays{position:absolute;inset:0;z-index:0;pointer-events:none;background:repeating-conic-gradient(from 5deg at calc(100% - 39px) 7px,rgba(255,248,220,0) 0deg 3deg,rgba(255,248,220,.4) 9deg,rgba(255,248,220,.5) 13deg,rgba(255,248,220,.4) 17deg,rgba(255,248,220,0) 23deg 30deg);-webkit-mask:radial-gradient(circle at calc(100% - 39px) 7px,transparent 0 6%,#000 9% 100%);mask:radial-gradient(circle at calc(100% - 39px) 7px,transparent 0 6%,#000 9% 100%);filter:blur(3px);animation:wxGodPulse 8s ease-in-out infinite}
+  @keyframes wxGodPulse{0%,100%{opacity:.5}50%{opacity:.9}}
+
+  /* Луна: фазы рисуются смещением круга-тени (.wx-moon-shadow) */
+  .wx-moon{position:absolute;width:46px;height:46px;border-radius:50%;overflow:hidden;background:radial-gradient(circle at 35% 30%,#fdfdeb,#dedeca 70%,#b4b4a4);box-shadow:0 0 14px rgba(240,240,220,.5),inset -4px -4px 9px rgba(0,0,0,.18);animation:wxMoonFloat 6s ease-in-out infinite}
+  .wx-moon-shadow{position:absolute;top:0;left:0;width:46px;height:46px;border-radius:50%;background:#0f1c33}
+
+  /* Звёзды — четырёхконечные с игольчатым сиянием */
+  .wx-star{position:absolute;width:9px;height:9px;background:#fff;clip-path:polygon(50% 0,60% 40%,100% 50%,60% 60%,50% 100%,40% 60%,0 50%,40% 40%);filter:drop-shadow(0 0 3px rgba(255,255,255,.85));animation:wxTwinkle 2.5s ease-in-out infinite}
+
+  /* Облако — основание-таблетка + две выпуклости */
+  .wx-cloud{position:absolute;width:58px;height:20px;border-radius:20px;background:linear-gradient(180deg,#ffffff,#dbe4ec);box-shadow:0 2px 6px rgba(0,0,0,.08)}
+  .wx-cloud:before{content:"";position:absolute;width:28px;height:28px;border-radius:50%;background:inherit;top:-13px;left:9px}
+  .wx-cloud:after{content:"";position:absolute;width:20px;height:20px;border-radius:50%;background:inherit;top:-8px;left:32px}
+
+  /* Капля дождя — каплевидная форма (остриём вверх, как 💧) + блик */
+  .wx-drop{position:absolute;width:5px;height:6px;animation:wxDropFall .85s linear infinite}
+  .wx-drop:before{content:"";position:absolute;left:50%;top:0;width:5px;height:5px;margin-left:-2.5px;background:linear-gradient(150deg,#bae6fd 0%,#38bdf8 45%,#2563eb 100%);border-radius:0 50% 50% 50%;transform:rotate(45deg);box-shadow:0 0 2px rgba(56,189,248,.55)}
+  .wx-drop:after{content:"";position:absolute;left:1px;top:3.5px;width:1.5px;height:1.5px;background:rgba(255,255,255,.85);border-radius:50%}
+
+  /* Снежинка — три перекрещенных луча (6 концов) */
+  .wx-flake{position:absolute;width:11px;height:2px;background:rgba(255,255,255,.95);border-radius:1px;box-shadow:0 0 3px rgba(255,255,255,.75);animation:wxFlakeFall 3.5s linear infinite}
+  .wx-flake:before,.wx-flake:after{content:"";position:absolute;inset:0;background:inherit;border-radius:inherit;box-shadow:inherit}
+  .wx-flake:before{transform:rotate(60deg)}
+  .wx-flake:after{transform:rotate(-60deg)}
+
+  /* Молния: вспышка на всю сцену + зигзагообразный разряд с ответвлениями */
+  .wx-flash{position:absolute;inset:0;z-index:5;pointer-events:none;opacity:0;mix-blend-mode:screen;background:radial-gradient(ellipse 115% 95% at 50% 5%,#ffffff 0%,rgba(210,234,255,.98) 30%,rgba(150,195,255,.72) 60%,rgba(110,165,255,.38) 80%,transparent 96%)}
+  .wx-flash.on{animation:wxFlicker .7s ease-out}
+  .wx-bolts{position:absolute;inset:0;z-index:6;pointer-events:none;overflow:visible;filter:drop-shadow(0 0 4px rgba(196,228,255,.95)) drop-shadow(0 0 11px rgba(120,180,255,.7));-webkit-mask:linear-gradient(to right,transparent 25%,black 55%);mask:linear-gradient(to right,transparent 25%,black 55%)}
+  .wx-seg{position:absolute;border-radius:2px;background:linear-gradient(90deg,#dbeafe,#ffffff,#bfdbfe);transform-origin:center}
+  /* Жёлтая вспышка/свечение (20% разрядов) */
+  .wx-flash.yellow{background:radial-gradient(ellipse 115% 95% at 50% 5%,#fffbe6 0%,rgba(255,236,150,.98) 30%,rgba(255,205,70,.72) 60%,rgba(255,170,30,.38) 80%,transparent 96%)}
+  .wx-bolts.yellow{filter:drop-shadow(0 0 4px rgba(255,235,150,.95)) drop-shadow(0 0 11px rgba(255,190,60,.7))}
+  /* Грозовые (тёмные) облака — при сильном дожде/ливне/грозе */
+  .wx-cloud.dark{background:linear-gradient(180deg,#64748b,#334155)}
+  /* Маленькие молнии, бьющие из грозовых облаков */
+  .wx-sparks{position:absolute;inset:0;z-index:4;pointer-events:none;overflow:visible;filter:drop-shadow(0 0 3px rgba(196,228,255,.9));-webkit-mask:linear-gradient(to right,transparent 25%,black 55%);mask:linear-gradient(to right,transparent 25%,black 55%)}
+
+  @keyframes wxSunPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+  @keyframes wxSunSpin{to{transform:rotate(360deg)}}
+  @keyframes wxMoonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+  @keyframes wxTwinkle{0%,100%{opacity:.2}50%{opacity:1}}
+  @keyframes wxCloudRight{0%{left:28%;opacity:0}6%,90%{opacity:.78}100%{left:103%;opacity:0}}
+  @keyframes wxCloudLeft{0%{left:103%;opacity:0}6%,90%{opacity:.78}100%{left:28%;opacity:0}}
+  @keyframes wxDropFall{0%{transform:translateY(-14px);opacity:0}6%{opacity:.85}88%{opacity:.85}100%{transform:translateY(150px);opacity:0}}
+  @keyframes wxDropFallWind{0%{transform:translate(-3px,-14px);opacity:0}6%{opacity:.85}88%{opacity:.85}100%{transform:translate(18px,150px);opacity:0}}
+  .wx-scene.wx-windy .wx-drop{animation-name:wxDropFallWind}
+  .wx-wind{position:absolute;height:2px;border-radius:10px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);opacity:0;pointer-events:none;z-index:1}
+  @keyframes wxWindMove{0%{left:-25%;opacity:0;transform:translateY(0) skewX(0deg)}8%{opacity:.55}14%{transform:translateY(-8px) skewX(-8deg)}25%{transform:translateY(5px) skewX(6deg)}36%{transform:translateY(-6px) skewX(-9deg)}47%{transform:translateY(7px) skewX(5deg)}58%{transform:translateY(-4px) skewX(-7deg)}69%{transform:translateY(6px) skewX(8deg)}80%{transform:translateY(-3px) skewX(-4deg)}88%{transform:translateY(2px) skewX(2deg)}92%{opacity:.55}100%{left:125%;opacity:0;transform:translateY(0) skewX(0deg)}}
+  @keyframes wxFlakeFall{0%{transform:translateY(-12px) translateX(0);opacity:0}8%{opacity:.9}20%{transform:translateY(12px) translateX(6px)}40%{transform:translateY(28px) translateX(-6px)}60%{transform:translateY(44px) translateX(6px)}80%{transform:translateY(62px) translateX(-5px)}92%{opacity:.9}100%{transform:translateY(85px) translateX(0);opacity:0}}
+  @keyframes wxFlakeFallWind{0%{transform:translate(0,-12px);opacity:0}8%{opacity:.9}25%{transform:translate(12px,8px)}50%{transform:translate(6px,28px)}75%{transform:translate(18px,52px)}92%{opacity:.9}100%{transform:translate(12px,85px);opacity:0}}
+  @keyframes wxFlicker{0%{opacity:0}2%{opacity:1}8%{opacity:.55}13%{opacity:1}24%{opacity:.4}36%{opacity:.85}52%{opacity:.5}100%{opacity:0}}
   .weather-dropdown .wd-day.today{background:linear-gradient(135deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.5)}
   .weather-dropdown .wd-dow{font-size:10px;text-transform:uppercase;color:#93c5fd;font-weight:700}
   .weather-dropdown .wd-date{font-size:13px;font-weight:800;margin:2px 0 6px}
@@ -731,6 +780,17 @@
   .mtask.base-card{cursor:default!important}
   .mtask.base-card:hover{transform:none!important;background:linear-gradient(135deg,#0f2740,#1a3a5c)!important;border-color:transparent!important}
   .mtask.base-card:hover .pin{transform:none!important}
+
+  /* Капли дождя по стеклу (для панели прогноза) */
+  .weather-dropdown .wd-head{position:relative;z-index:2}
+  .weather-dropdown .wd-grid{position:relative;z-index:2}
+  .glass-head{position:absolute;width:4px;height:5px;border-radius:50%;background:rgba(255,255,255,.5);box-shadow:0 0 2px rgba(255,255,255,.3),inset 0 -1px 1px rgba(255,255,255,.2);pointer-events:none;z-index:1}
+  .glass-trail{position:absolute;width:2px;height:2px;border-radius:50%;background:rgba(255,255,255,.22);pointer-events:none;z-index:0;transition:opacity 2.5s ease-out}
+  .snow-dot{position:absolute;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.7);box-shadow:0 0 3px rgba(255,255,255,.5);pointer-events:none;z-index:1}
+  .glass-flake{position:absolute;width:7px;height:1.4px;background:rgba(255,255,255,.9);border-radius:1px;box-shadow:0 0 3px rgba(255,255,255,.65);pointer-events:none;z-index:1;will-change:transform}
+  .glass-flake:before,.glass-flake:after{content:"";position:absolute;inset:0;background:inherit;border-radius:inherit;box-shadow:inherit}
+  .glass-flake:before{transform:rotate(60deg)}
+  .glass-flake:after{transform:rotate(-60deg)}
 </style>
 </head>
 <body>
@@ -790,6 +850,7 @@
       <a data-screen="perms"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V7l-9-5z"/><path d="M9 12l2 2 4-4"/></svg>Разрешения</a>
       <a data-screen="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Отчёты</a>
       <a data-screen="refs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20V3H6.5A2.5 2.5 0 004 5.5z"/><path d="M4 19.5V21h12"/></svg>Справочники</a>
+      <a data-action="toggle-ai-chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>AI чат</a>
       <div class="grp">Администрирование</div>
       <a data-screen="users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Пользователи</a>
       <a data-screen="aikb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>База знаний AI</a>
@@ -851,11 +912,7 @@
   </div>
 </div>
 
-<!-- AI ЧАТ -->
-<button id="ai-chat-toggle" title="AI помощник">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
-  AI чат
-</button>
+<!-- AI ЧАТ (открывается из пункта меню «AI чат», окно перетаскивается за шапку) -->
 <div id="ai-chat-window">
   <div class="ai-chat-h">
     <div class="av-ai">🤖</div>
@@ -875,5 +932,5 @@
 </div>
 
 <script src="app.js"></script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1e94b5dbe3324bb',t:'MTc4NDYyNzM1Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1faadf31ed7bf36',t:'MTc4NDgwOTY0OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
