@@ -399,6 +399,8 @@
     .mname{min-width:120px}
     .mname .nm{font-size:11px}
     .cell{min-height:50px}
+    .login-wrap{padding:20px}
+    .login-wrap::before{-webkit-mask-image:linear-gradient(to bottom,#000,transparent 20px),linear-gradient(to top,#000,transparent 20px),linear-gradient(to right,#000,transparent 20px),linear-gradient(to left,#000,transparent 20px);mask-image:linear-gradient(to bottom,#000,transparent 20px),linear-gradient(to top,#000,transparent 20px),linear-gradient(to right,#000,transparent 20px),linear-gradient(to left,#000,transparent 20px)}
   }
 
   /* === Смартфон горизонтально (ландшафт) === */
@@ -416,6 +418,8 @@
     #ai-chat-window{width:100%!important;max-width:100%!important;zoom:0.5!important}
     /* Экран входа компактнее */
     .login-card{max-width:340px}
+    .login-wrap{padding:20px}
+    .login-wrap::before{-webkit-mask-image:linear-gradient(to bottom,#000,transparent 20px),linear-gradient(to top,#000,transparent 20px),linear-gradient(to right,#000,transparent 20px),linear-gradient(to left,#000,transparent 20px);mask-image:linear-gradient(to bottom,#000,transparent 20px),linear-gradient(to top,#000,transparent 20px),linear-gradient(to right,#000,transparent 20px),linear-gradient(to left,#000,transparent 20px)}
   }
 
   /* === Очень маленькие экраны (<380px) === */
@@ -433,7 +437,11 @@
   /* ---------- ЭКРАН ВХОДА ---------- */
   .login-screen{position:fixed;inset:0;z-index:500;background:linear-gradient(135deg,rgba(15,39,64,.25),rgba(22,56,92,.25)),url('фон.jpg') center/cover no-repeat;display:flex;align-items:center;justify-content:center;padding:20px}
   body.logged-in .login-screen{display:none}
-  .login-card{background:#fff;border-radius:16px;width:100%;max-width:384px;box-shadow:0 24px 70px rgba(0,0,0,.4);overflow:hidden}
+  /* Обёртка даёт отступ 100px вокруг карточки. Её ::before размывает фон фон.jpg
+     СТРОГО внутри этого margin (прямоугольная рамка), градиентом 100% у внешнего края → 0% у карточки */
+  .login-wrap{position:relative;padding:100px;width:100%;max-width:584px;z-index:2}
+  .login-wrap::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);-webkit-mask-image:linear-gradient(to bottom,#000,transparent 100px),linear-gradient(to top,#000,transparent 100px),linear-gradient(to right,#000,transparent 100px),linear-gradient(to left,#000,transparent 100px);mask-image:linear-gradient(to bottom,#000,transparent 100px),linear-gradient(to top,#000,transparent 100px),linear-gradient(to right,#000,transparent 100px),linear-gradient(to left,#000,transparent 100px);-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-composite:source-over;mask-composite:add}
+  .login-card{background:#fff;border-radius:16px;width:100%;max-width:384px;box-shadow:0 24px 70px rgba(0,0,0,.4);overflow:hidden;position:relative;z-index:1}
   .login-brand{display:flex;align-items:center;gap:11px;padding:18px 20px;background:#f8fafc;border-bottom:1px solid var(--line)}
   .login-brand .logo{width:66px;height:66px;border-radius:13px;background:#fff;padding:6px;object-fit:contain;box-shadow:0 4px 12px rgba(0,0,0,.18)}
   .login-brand .bt{font-size:16px;font-weight:800;color:var(--ink)}
@@ -729,7 +737,7 @@
   .wx-wind{position:absolute;height:2px;border-radius:10px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);opacity:0;pointer-events:none;z-index:1}
   @keyframes wxWindMove{0%{left:-25%;opacity:0;transform:translateY(0) skewX(0deg)}8%{opacity:.55}14%{transform:translateY(-8px) skewX(-8deg)}25%{transform:translateY(5px) skewX(6deg)}36%{transform:translateY(-6px) skewX(-9deg)}47%{transform:translateY(7px) skewX(5deg)}58%{transform:translateY(-4px) skewX(-7deg)}69%{transform:translateY(6px) skewX(8deg)}80%{transform:translateY(-3px) skewX(-4deg)}88%{transform:translateY(2px) skewX(2deg)}92%{opacity:.55}100%{left:125%;opacity:0;transform:translateY(0) skewX(0deg)}}
   @keyframes wxFlakeFall{0%{transform:translateY(-12px) translateX(0);opacity:0}8%{opacity:.9}20%{transform:translateY(12px) translateX(6px)}40%{transform:translateY(28px) translateX(-6px)}60%{transform:translateY(44px) translateX(6px)}80%{transform:translateY(62px) translateX(-5px)}92%{opacity:.9}100%{transform:translateY(85px) translateX(0);opacity:0}}
-  @keyframes wxFlakeFallWind{0%{transform:translate(0,-12px);opacity:0}8%{opacity:.9}25%{transform:translate(12px,8px)}50%{transform:translate(6px,28px)}75%{transform:translate(18px,52px)}92%{opacity:.9}100%{transform:translate(12px,85px);opacity:0}}
+  @keyframes wxFlakeFallWind{0%{transform:translate(0,-12px);opacity:0}8%{opacity:.9}20%{transform:translate(16px,6px)}40%{transform:translate(8px,24px)}60%{transform:translate(26px,44px)}80%{transform:translate(16px,62px)}92%{opacity:.9}100%{transform:translate(38px,85px);opacity:0}}
   @keyframes wxFlicker{0%{opacity:0}2%{opacity:1}8%{opacity:.55}13%{opacity:1}24%{opacity:.4}36%{opacity:.85}52%{opacity:.5}100%{opacity:0}}
   .weather-dropdown .wd-day.today{background:linear-gradient(135deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.5)}
   .weather-dropdown .wd-dow{font-size:10px;text-transform:uppercase;color:#93c5fd;font-weight:700}
@@ -796,6 +804,7 @@
 <body>
 <!-- ЭКРАН ВХОДА -->
 <div class="login-screen" id="login-screen">
+  <div class="login-wrap">
   <div class="login-card">
     <div class="login-brand">
       <img src="logo.png" class="logo" alt="Логотип СЭОГС">
@@ -821,6 +830,7 @@
         </div>
       </form>
     </div>
+  </div>
   </div>
 </div>
 
@@ -932,5 +942,5 @@
 </div>
 
 <script src="app.js"></script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1faadf31ed7bf36',t:'MTc4NDgwOTY0OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1fc5f2b894a3013',t:'MTc4NDgyNzM5Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
