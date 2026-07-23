@@ -194,7 +194,7 @@
     var lat = (window.SP_CONFIG && SP_CONFIG.weatherLat) || 53.9023;
     var lng = (window.SP_CONFIG && SP_CONFIG.weatherLng) || 27.5619;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
-      '&daily=temperature_2m_max,temperature_2m_min,snowfall_sum,precipitation_sum,weather_code,sunrise,sunset' +
+      '&daily=temperature_2m_max,temperature_2m_min,snowfall_sum,precipitation_sum,weather_code,sunrise,sunset,windspeed_10m_max' +
       '&hourly=temperature_2m,precipitation_probability,snowfall,rain,weather_code' +
       '&timezone=Europe%2FMinsk&forecast_days=15';
     return fetch(url).then(function(r) { return r.json(); }).then(function(data) {
@@ -245,6 +245,7 @@
           precip: precip,
           code: code,
           desc: info.desc,
+          wind: data.daily.windspeed_10m_max ? (data.daily.windspeed_10m_max[i] || 0) : 0,
           sunrise: data.daily.sunrise[i],
           sunset: data.daily.sunset[i],
           hourly: hourlyArr
@@ -360,6 +361,7 @@
       snowfall: 0,
       rain: 0,
       precip: 0,
+      wind: 3,
       hourly: dummyHourly,
       sunrise: key(d) + 'T06:00',
       sunset: key(d) + 'T20:00'
@@ -610,6 +612,49 @@
   }
 
   // Анимированная сцена погоды для карточки дашборда: солнце/луна/звёзды + облака/дождь/снег
+  // Фаза луны (0=новая, 0.5=полная, 1=снова новая)
+  function getMoonPhase(date) {
+    var knownNewMoon = new Date('2000-01-06T18:14:00Z').getTime();
+    var lunarCycle = 29.530588853 * 86400000;
+    var diff = date.getTime() - knownNewMoon;
+    var phase = (diff % lunarCycle) / lunarCycle;
+    if (phase < 0) phase += 1;
+    return phase;
+  }
+
+  // Количество капель дождя в сцене зависит от интенсивности осадков.
+  // Учитываем код погоды WMO (тип дождя) и суточное количество осадков в мм.
+  // Возвращает { count, dur }: count — число капель, dur — базовая скорость падения (с).
+  function rainIntensity(wf) {
+    var code = wf.code || 0;
+    var mm = wf.rain || 0;
+    var count;
+    // Базовое количество по коду погоды (WMO)
+    if (code === 51 || code === 56) count = 14;          // слабая морось
+    else if (code === 53) count = 20;                     // умеренная морось
+    else if (code === 55 || code === 57) count = 28;      // густая/сильная морось
+    else if (code === 61 || code === 66 || code === 80) count = 26; // небольшой дождь/ливень
+    else if (code === 63 || code === 67 || code === 81) count = 40; // умеренный дождь
+    else if (code === 65 || code === 82) count = 54;      // сильный/проливной дождь
+    else if (code >= 95) count = 60;                      // гроза с ливнем
+    else count = 22;                                       // есть осадки, код не детализирован
+    // Корректировка по количеству осадков за день (мм) — уточняет интенсивность
+    if (mm > 0) {
+      if (mm < 1) count = Math.min(count, 16);            // следы осадков
+      else if (mm < 2.5) count = Math.max(count, 28);     // слабый
+      else if (mm < 5) count = Math.max(count, 42);       // умеренный
+      else if (mm < 8) count = Math.max(count, 54);       // сильный
+      else count = Math.max(count, 64);                   // очень сильный/ливень
+    }
+    // Скорость падения капель: чем сильнее дождь, тем быстрее летят (с)
+    var heavy = (code === 65 || code === 82 || code >= 95) || mm >= 5;
+    var moder = (code === 63 || code === 67 || code === 81 || code === 55 || code === 57) || (mm >= 2.5 && mm < 5);
+    var dur = heavy ? 0.45 : moder ? 0.6 : 0.75;
+    // Морось — капель по стандарту (×1); сильный дождь/ливень/гроза — в 2 раза больше; прочий дождь — ×1.5
+    var mult = heavy ? 2 : ((code >= 51 && code <= 57) ? 1 : 1.5);
+    return { count: Math.round(count * mult), dur: dur };
+  }
+
   function weatherSceneHTML(wf) {
     wf = wf || {};
     var now = new Date();
@@ -628,40 +673,230 @@
     else tod = 'day';
     var code = wf.code || 0, desc = wf.desc || '';
     var cloudy = (code >= 2 && code <= 3) || desc.indexOf('Облачно') !== -1;
-    var hasRain = (wf.rain && wf.rain > 0.1) || (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
-    var hasSnow = (wf.snowfall && wf.snowfall > 0.1) || (code >= 71 && code <= 77) || code === 85 || code === 86;
+    var hasRain = (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || (code >= 95);
+    var hasSnow = (code >= 71 && code <= 77) || code === 85 || code === 86;
+    var hasStorm = code >= 95; // гроза → молнии
+    var stormClouds = hasStorm || code === 65 || code === 82 || ((wf.rain || 0) >= 5); // сильный дождь/ливень/гроза → грозовые облака
     var c;
     if (tod === 'night') c = '#15233d';
     else if (tod === 'morning') c = '#f6b89c';
     else if (tod === 'evening') c = '#f0a868';
     else c = '#42a5f5';
     var sceneBg = 'linear-gradient(to right,transparent 28%,' + c + ' 58%,' + c + ' 100%)';
-    var scene = '<div class="wx-scene" style="background:' + sceneBg + '">';
+    var windy = (wf.wind || 0) >= 5; // средний/сильный ветер → дождь под углом + линии ветра
+    var scene = '<div class="wx-scene' + (windy ? ' wx-windy' : '') + '" style="background:' + sceneBg + '">';
+    var maskCss = 'position:absolute;inset:0;-webkit-mask-image:linear-gradient(to right,transparent 25%,black 55%);mask-image:linear-gradient(to right,transparent 25%,black 55%);pointer-events:none';
+    // Небесное тело (чистый CSS — без эмодзи)
     if (tod === 'night') {
-      for (var i = 0; i < 16; i++) scene += '<span class="wx-star" style="left:' + (52 + Math.random()*46).toFixed(1) + '%;top:' + (Math.random()*60).toFixed(1) + '%;animation-delay:' + (Math.random()*2.5).toFixed(2) + 's"></span>';
-      scene += '<div class="wx-moon" style="top:-6px;right:16px;"></div>';
+      scene += '<div style="' + maskCss + '">';
+      for (var i = 0; i < 20; i++) scene += '<span class="wx-star" style="left:' + (28+Math.random()*70).toFixed(1) + '%;top:' + (Math.random()*70).toFixed(1) + '%;animation-delay:' + (Math.random()*2.5).toFixed(2) + 's"></span>';
+      scene += '</div>';
+      // Луна: фаза рисуется смещением круга-тени по расчётной фазе
+      var mp = getMoonPhase(now);
+      var _md = 46;
+      var _shLeft = mp <= 0.5 ? -2 * mp * _md : 2 * (1 - mp) * _md;
+      scene += '<span class="wx-moon" style="top:-6px;right:12px;z-index:1"><span class="wx-moon-shadow" style="left:' + _shLeft.toFixed(0) + 'px"></span></span>';
     } else {
-      var ss2;
-      if (tod === 'morning') ss2 = 'top:-4px;right:24px;width:38px;height:38px;background:radial-gradient(circle,#fff5cc,#ffc44d 55%,#ff9800);box-shadow:0 0 22px 5px rgba(255,180,50,.5)';
-      else if (tod === 'evening') ss2 = 'top:-2px;right:20px;width:40px;height:40px;background:radial-gradient(circle,#ffe0b2,#ff7043 55%,#e53935);box-shadow:0 0 24px 6px rgba(255,100,50,.5)';
-      else ss2 = 'top:-12px;right:18px;width:46px;height:46px;background:radial-gradient(circle,#fff8d6,#ffd24d 55%,#ffb300);box-shadow:0 0 28px 7px rgba(255,210,77,.55)';
-      scene += '<div class="wx-sun" style="' + ss2 + '"></div>';
+      // Солнце: светящийся диск + вращающиеся лучи; при ясной погоде — ещё полупрозрачные толстые лучи (god rays) через весь блок
+      var _sunny = !cloudy && !hasRain && !hasSnow && !hasStorm;
+      if (_sunny) scene += '<div class="wx-godrays"></div>';
+      var _sunCls = !_sunny ? ' dim' : (tod === 'evening' ? ' evening' : (tod === 'morning' ? ' morning' : ''));
+      scene += '<span class="wx-sun-wrap' + _sunCls + '" style="top:-26px;right:6px;z-index:1"><span class="wx-sun"></span>';
+      if (_sunny) scene += '<span class="wx-sun-rays"></span>';
+      scene += '</span>';
     }
-    if (cloudy || hasRain || hasSnow) {
-      var nc = cloudy ? 3 : 2;
-      for (var cf = 0; cf < nc; cf++) {
-        var cw = 38 + Math.random() * 20;
-        scene += '<div class="wx-cloud" style="right:' + (4 + cf*14 + Math.random()*6).toFixed(0) + '%;top:' + (4 + Math.random()*16).toFixed(0) + '%;width:' + cw.toFixed(0) + 'px;height:' + (cw*0.38).toFixed(0) + 'px;animation-delay:' + (Math.random()*5).toFixed(2) + 's"></div>';
+    // Облака (чистый CSS: основание + выпуклости, масштаб случайный)
+    // Минимум 10–14 (ясная погода), при облачности/осадках/грозе — 20
+    var nc = (cloudy || hasRain || hasSnow || hasStorm) ? 20 : (10 + Math.floor(Math.random() * 5));
+    var _windFactor = Math.max(0.3, 1 - (wf.wind || 0) / 30);
+    for (var cf = 0; cf < nc; cf++) {
+      var cAnim = cf % 2 === 0 ? 'wxCloudRight' : 'wxCloudLeft';
+      var cDur = (400 + Math.random() * 640) * _windFactor;
+      var cScale = (0.62 + Math.random() * 0.5).toFixed(2);
+      var cTop = Math.random() * 82;
+      var cZ = Math.random() < 0.5 ? 0 : 2;
+      var cDark = stormClouds && Math.random() < 0.5; // половина облаков — грозовые (тёмные)
+      scene += '<span class="wx-cloud' + (cDark ? ' dark' : '') + '" style="top:' + cTop.toFixed(0) + '%;transform:scale(' + cScale + ');z-index:' + cZ + ';opacity:' + (cDark ? '.92' : '.78') + ';animation:' + cAnim + ' ' + cDur.toFixed(0) + 's linear infinite;animation-delay:-' + (Math.random()*cDur).toFixed(0) + 's"></span>';
+    }
+    // Ветер: полупрозрачные изогнутые линии, движущиеся слева направо
+    if (windy) {
+      var nw = 5 + Math.floor(Math.random() * 4);
+      scene += '<div style="' + maskCss + '">';
+      for (var wi = 0; wi < nw; wi++) {
+        var wTop = Math.random() * 85;
+        var wW = (30 + Math.random() * 50).toFixed(0);
+        var wDur = (2 + Math.random() * 3).toFixed(1);
+        scene += '<span class="wx-wind" style="top:' + wTop.toFixed(0) + '%;width:' + wW + 'px;animation:wxWindMove ' + wDur + 's linear infinite;animation-delay:-' + (Math.random() * wDur).toFixed(1) + 's"></span>';
       }
+      scene += '</div>';
     }
-    if (hasRain) {
-      for (var r = 0; r < 18; r++) scene += '<span class="wx-drop" style="left:' + (52+Math.random()*46).toFixed(1) + '%;top:0;animation-delay:' + (Math.random()*1.2).toFixed(2) + 's;animation-duration:' + (0.7+Math.random()*0.5).toFixed(2) + 's"></span>';
+    // Капли дождя — в горизонтальной полосе облаков (left 28–100%), падают до самого низа блока
+    if (hasRain || hasStorm) {
+      var ri = rainIntensity(wf);
+      scene += '<div style="position:absolute;left:28%;top:0;right:0;bottom:0;overflow:hidden;pointer-events:none;-webkit-mask:linear-gradient(to right,transparent,#000 14%);mask:linear-gradient(to right,transparent,#000 14%)">';
+      for (var r = 0; r < ri.count; r++) scene += '<span class="wx-drop" style="left:' + (Math.random()*100).toFixed(1) + '%;top:0;animation-delay:-' + (Math.random()*ri.dur).toFixed(2) + 's;animation-duration:' + (ri.dur+Math.random()*0.3).toFixed(2) + 's"></span>';
+      scene += '</div>';
     }
+    // Снежинки (чистый CSS). При ветре — анимация wxFlakeFallWind: снос вправо, амплитуда вправо ≈2× больше влево.
     if (hasSnow) {
-      for (var sf = 0; sf < 14; sf++) scene += '<span class="wx-flake" style="left:' + (52+Math.random()*46).toFixed(1) + '%;top:0;animation-delay:' + (Math.random()*3).toFixed(2) + 's;animation-duration:' + (2.5+Math.random()*1.5).toFixed(2) + 's">❄</span>';
+      var _flakeAnim = windy ? 'wxFlakeFallWind' : 'wxFlakeFall';
+      scene += '<div style="' + maskCss + ';z-index:3">';
+      for (var sf = 0; sf < 14; sf++) scene += '<span class="wx-flake" style="left:' + (28+Math.random()*70).toFixed(1) + '%;top:0;animation-name:' + _flakeAnim + ';animation-delay:' + (Math.random()*3.5).toFixed(2) + 's;animation-duration:' + (2.5+Math.random()*2).toFixed(2) + 's"></span>';
+      scene += '</div>';
+    }
+    // Грозовые облака: контейнер для маленьких молний, бьющих из облаков
+    if (stormClouds) {
+      scene += '<div class="wx-sparks" id="wx-sparks"></div>';
+    }
+    // Гроза: контейнеры для случайных вспышек молний (запускаются setupLightning на дашборде)
+    if (hasStorm) {
+      scene += '<div class="wx-flash" id="wx-flash"></div>';
+      scene += '<div class="wx-bolts" id="wx-bolts"></div>';
     }
     scene += '</div>';
     return { html: scene };
+  }
+
+  /* ---------- МОЛНИИ ПРИ ГРОЗЕ (случайные вспышки с ответвлениями) ---------- */
+  var wxLightningTimer = null;
+  var wxStrikeHideTm = null;
+  var wxSecondBoltTm = null;
+  var wxSparkTimer = null;
+  var wxSparkHideTm = null;
+  function stopLightning() {
+    if (wxLightningTimer) { clearTimeout(wxLightningTimer); wxLightningTimer = null; }
+    if (wxStrikeHideTm) { clearTimeout(wxStrikeHideTm); wxStrikeHideTm = null; }
+    if (wxSecondBoltTm) { clearTimeout(wxSecondBoltTm); wxSecondBoltTm = null; }
+    if (wxSparkTimer) { clearTimeout(wxSparkTimer); wxSparkTimer = null; }
+    if (wxSparkHideTm) { clearTimeout(wxSparkHideTm); wxSparkHideTm = null; }
+    var f = document.getElementById('wx-flash'); if (f) f.classList.remove('on');
+    var h = document.getElementById('wx-bolts'); if (h) h.innerHTML = '';
+    var sp = document.getElementById('wx-sparks'); if (sp) sp.innerHTML = '';
+  }
+  // Запуск вспышек: большие молнии (гроза) и/или маленькие искры из грозовых облаков
+  function setupLightning() {
+    stopLightning();
+    var hasBig = !!document.getElementById('wx-bolts');
+    var hasSparks = !!document.getElementById('wx-sparks');
+    if (!hasBig && !hasSparks) return; // грозы/ливня нет / не дашборд
+    if (hasBig) {
+      (function loop() {
+        var delay = 2200 + Math.random() * 3800; // 2.2–6.0 c между большими разрядами
+        wxLightningTimer = setTimeout(function () {
+          if (!document.getElementById('wx-bolts')) { stopLightning(); return; }
+          fireLightningStrike();
+          loop();
+        }, delay);
+      })();
+    }
+    if (hasSparks) {
+      (function sparkLoop() {
+        var delay = 700 + Math.random() * 1300; // 0.7–2.0 c между маленькими молниями
+        wxSparkTimer = setTimeout(function () {
+          if (!document.getElementById('wx-sparks')) { stopLightning(); return; }
+          sparkStrike();
+          sparkLoop();
+        }, delay);
+      })();
+    }
+  }
+  // Маленькая молния из грозового облака: бьёт строго из нижнего края тёмного облака
+  function sparkStrike() {
+    var host = document.getElementById('wx-sparks');
+    if (!host) return;
+    var scene = host.parentNode;
+    if (!scene) return;
+    var darkClouds = scene.querySelectorAll('.wx-cloud.dark');
+    if (!darkClouds.length) return;
+    var cloud = darkClouds[Math.floor(Math.random() * darkClouds.length)];
+    var sRect = scene.getBoundingClientRect();
+    var cRect = cloud.getBoundingClientRect();
+    var x = (cRect.left - sRect.left) + cRect.width * (0.2 + Math.random() * 0.6);
+    var y = (cRect.bottom - sRect.top) - 3;
+    var len = 12 + Math.random() * 22;
+    var ang = Math.PI * (0.25 + Math.random() * 0.5);
+    var ex = x + Math.cos(ang) * len;
+    var ey = y + Math.abs(Math.sin(ang)) * len + 6;
+    var segs = 2 + Math.floor(Math.random() * 2);
+    host.innerHTML = wxBoltSegments(wxJaggedPolyline(x, y, ex, ey, segs), 1.4, 1);
+    if (wxSparkHideTm) clearTimeout(wxSparkHideTm);
+    wxSparkHideTm = setTimeout(function () { host.innerHTML = ''; }, 90 + Math.random() * 70);
+  }
+  // Разряд грозы: одна молния; при удаче (35%) — вторая бьёт через 0.5 с после первой.
+  function fireLightningStrike() {
+    strikeOnce();
+    if (Math.random() < 0.35) {
+      wxSecondBoltTm = setTimeout(function () { strikeOnce(); }, 500);
+    }
+  }
+  // Один разряд молнии: бьёт в случайном месте по всему блоку (зигзаг + ответвления),
+  // кратко засвечивает сцену и самоочищается через ~0.3 с.
+  function strikeOnce() {
+    var host = document.getElementById('wx-bolts');
+    var flash = document.getElementById('wx-flash');
+    if (!host || !flash) return;
+    var W = host.clientWidth || 600;
+    var H = host.clientHeight || 80;
+    var yellow = Math.random() < 0.2; // 20% — жёлтая вспышка и жёлтый свет
+    flash.classList.toggle('yellow', yellow);
+    host.classList.toggle('yellow', yellow);
+    // Главная молния: старт в верхней зоне, удар в любую точку нижней части блока
+    var x0 = 6 + Math.random() * Math.max(1, W - 12);
+    var y0 = -10 + Math.random() * (H * 0.2);
+    var x1 = 6 + Math.random() * Math.max(1, W - 12);
+    var y1 = H * (0.5 + Math.random() * 0.55);
+    var segs = 5 + Math.floor(Math.random() * 4);
+    var main = wxJaggedPolyline(x0, y0, x1, y1, segs);
+    var html = wxBoltSegments(main, 2.6, 1);
+    // Ответвления («пучки») в случайных направлениях из случайных вершин
+    var branches = 1 + Math.floor(Math.random() * 3);
+    for (var b = 0; b < branches; b++) {
+      if (main.length < 3) break;
+      var vi = 1 + Math.floor(Math.random() * (main.length - 2));
+      var bx = main[vi][0], by = main[vi][1];
+      var ang = Math.PI + Math.random() * Math.PI;   // вниз и в любую сторону
+      var len = 18 + Math.random() * 44;
+      var ex = bx + Math.cos(ang) * len;
+      var ey = by + Math.abs(Math.sin(ang)) * len;   // преимущественно вниз
+      html += wxBoltSegments(wxJaggedPolyline(bx, by, ex, ey, 2 + Math.floor(Math.random() * 2)), 1.8, 0.8);
+    }
+    host.innerHTML = html;
+    // Вспышка на всю сцену (перезапуск анимации)
+    flash.classList.remove('on'); void flash.offsetWidth; flash.classList.add('on');
+    if (wxStrikeHideTm) clearTimeout(wxStrikeHideTm);
+    wxStrikeHideTm = setTimeout(function () {
+      host.innerHTML = '';
+      flash.classList.remove('on');
+    }, 230 + Math.random() * 90);
+  }
+  // Ломаная (зигзаг) от (x0,y0) до (x1,y1) из segs сегментов с боковым дрожанием.
+  function wxJaggedPolyline(x0, y0, x1, y1, segs) {
+    var pts = [[x0, y0]];
+    var dx = x1 - x0, dy = y1 - y0;
+    var L = Math.sqrt(dx * dx + dy * dy);
+    var maxJ = Math.min(40, L * 0.2);
+    var pl = Math.max(1, L);
+    var nx = -dy / pl, ny = dx / pl; // перпендикуляр для бокового отклонения
+    for (var i = 1; i < segs; i++) {
+      var t = i / segs;
+      var j = (Math.random() * 2 - 1) * maxJ;
+      pts.push([x0 + dx * t + nx * j, y0 + dy * t + ny * j]);
+    }
+    pts.push([x1, y1]);
+    return pts;
+  }
+  // Превращает ломаную в набор наклонных светящихся полос (.wx-seg)
+  function wxBoltSegments(pts, thickness, alpha) {
+    var s = '';
+    for (var i = 1; i < pts.length; i++) {
+      var x1 = pts[i - 1][0], y1 = pts[i - 1][1], x2 = pts[i][0], y2 = pts[i][1];
+      var dx = x2 - x1, dy = y2 - y1;
+      var len = Math.sqrt(dx * dx + dy * dy);
+      var ang = Math.atan2(dy, dx) * 180 / Math.PI;
+      var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      s += '<i class="wx-seg" style="left:' + (mx - len / 2).toFixed(1) + 'px;top:' + (my - thickness / 2).toFixed(1) + 'px;width:' + len.toFixed(1) + 'px;height:' + thickness + 'px;opacity:' + alpha + ';transform:rotate(' + ang.toFixed(1) + 'deg)"></i>';
+    }
+    return s;
   }
 
   function renderDashboard() {
@@ -833,6 +1068,8 @@
     // привязка селектора участка (для админа)
     var dashAreaSel = document.getElementById('dash-area');
     if (dashAreaSel) dashAreaSel.addEventListener('change', function (e) { S.dashArea = e.target.value || null; renderDashboard(); });
+    // Запуск случайных вспышек молний, если сегодня гроза (сцена содержит #wx-bolts)
+    setupLightning();
   }
 
   function kpi(val, lab, hint, color, action) {
@@ -5514,6 +5751,92 @@
     html += '</div>';
     dd.innerHTML = html;
     dd.classList.add('open');
+    var _tw = getWeatherForecast(0);
+    var _windy = _tw && (_tw.wind || 0) >= 5; // ветер → снос снежинок вправо (амплитуда вправо ×2)
+    var _ddRain = _tw && ((_tw.code >= 51 && _tw.code <= 67) || (_tw.code >= 80 && _tw.code <= 82) || _tw.code >= 95 || (_tw.rain && _tw.rain > 0));
+    if (_ddRain) {
+      var _gl = document.createElement('div');
+      _gl.style.cssText = 'position:absolute;inset:0;overflow:hidden;border-radius:14px;pointer-events:none;z-index:0';
+      dd.insertBefore(_gl, dd.firstChild);
+      var _gdrops = [];
+      function _spawnG() {
+        var d = { x: Math.random() * 100, y: Math.random() * 15, sp: 0.2 + Math.random() * 1, life: 0, max: 50 + Math.random() * 140, el: document.createElement('div') };
+        d.el.className = 'glass-head'; d.el.style.cssText = 'left:' + d.x.toFixed(1) + '%;top:' + d.y.toFixed(0) + 'px;opacity:0';
+        _gl.appendChild(d.el);
+        setTimeout(function () { d.el.style.opacity = '.5'; }, 50);
+        _gdrops.push(d);
+      }
+      function _tickG() {
+        if (!document.getElementById('weather-dropdown').classList.contains('open')) { _gdrops = []; _gl.remove(); return; }
+        if (Math.random() < 0.3 && _gdrops.length < 22) _spawnG();
+        var _H = _gl.offsetHeight || 300;
+        for (var i = _gdrops.length - 1; i >= 0; i--) {
+          var d = _gdrops[i]; d.life++;
+          var _sp = d.sp * (0.7 + Math.random() * 0.6) * (d.zig ? 0.5 : 1);
+          d.y += _sp;
+          if (d.zig === undefined) d.zig = Math.random() < 0.4;
+          if (d.zig) { d.zc = (d.zc || 0) + 1; var amp = d.zamp || (d.zamp = 0.03 + Math.random() * 0.22); d.x += Math.sin(d.zc * 0.15) * amp; d.el.style.left = d.x.toFixed(1) + '%'; }
+          if (d.life % 6 === 0) { var t = document.createElement('div'); t.className = 'glass-trail'; t.style.cssText = 'left:' + d.x.toFixed(1) + '%;top:' + d.y.toFixed(0) + 'px'; _gl.appendChild(t); (function (e) { setTimeout(function () { e.style.opacity = '0'; setTimeout(function () { e.remove(); }, 2500); }, 800); })(t); }
+          d.el.style.top = d.y.toFixed(0) + 'px';
+          if (d.life > d.max * 0.7 && d.max > 0) { var _p = (d.life - d.max * 0.7) / (d.max * 0.3); var _sc = 1 - _p * 0.85; var _op = 0.5 * (1 - _p); d.el.style.transform = 'scale(' + _sc.toFixed(2) + ')'; d.el.style.opacity = _op.toFixed(2); }
+          if (d.life > d.max || d.y > _H) { (function (e) { setTimeout(function () { e.remove(); }, 200); })(d.el); _gdrops.splice(i, 1); }
+        }
+        requestAnimationFrame(_tickG);
+      }
+      for (var gi = 0; gi < 10; gi++) _spawnG();
+      _tickG();
+    }
+    // Снежинки на фоне прогноза (если снег): падают как в погоде → уменьшаются до точки → точка исчезает.
+    // Комков снега внизу НЕТ.
+    var _ddSnow = _tw && ((_tw.code >= 71 && _tw.code <= 77) || _tw.code === 85 || _tw.code === 86 || (_tw.snowfall && _tw.snowfall > 0.1));
+    if (_ddSnow) {
+      var _sl = document.createElement('div');
+      _sl.style.cssText = 'position:absolute;inset:0;overflow:hidden;border-radius:14px;pointer-events:none;z-index:0';
+      dd.insertBefore(_sl, dd.firstChild);
+      var _snow = [];
+      function _spawnS() {
+        var d = { x: Math.random() * 100, y: -5, sp: 0.15 + Math.random() * 0.5, sw: 0.1 + Math.random() * 0.3, ph: Math.random() * 6.28, state: 'fall', life: 0, maxFall: 100 + Math.random() * 140, op: 0.5 + Math.random() * 0.35, el: document.createElement('div') };
+        d.el.className = 'glass-flake'; d.el.style.cssText = 'left:' + d.x.toFixed(1) + '%;top:' + d.y.toFixed(0) + 'px;opacity:0';
+        _sl.appendChild(d.el);
+        setTimeout(function () { d.el.style.opacity = d.op.toFixed(2); }, 50);
+        _snow.push(d);
+      }
+      function _tickS() {
+        if (!document.getElementById('weather-dropdown').classList.contains('open')) { _snow = []; _sl.remove(); return; }
+        if (Math.random() < 0.4 && _snow.length < 30) _spawnS();
+        var _H = _sl.offsetHeight || 300;
+        for (var i = _snow.length - 1; i >= 0; i--) {
+          var d = _snow[i];
+          // Движение по траектории (падение + колыхание) — во ВСЕХ фазах,
+          // чтобы превратившись в точку, она продолжала лететь, пока не исчезнет.
+          // При ветре: траектория-волна сохраняется, но амплитуда вправо ×2 больше влево → снос по ветру.
+          d.ph += 0.04; d.y += d.sp * (0.8 + Math.random() * 0.4);
+          var _sx = Math.sin(d.ph);
+          d.x += _sx * (_windy && _sx > 0 ? 2 : 1) * d.sw;
+          d.el.style.left = d.x.toFixed(1) + '%'; d.el.style.top = d.y.toFixed(0) + 'px';
+          if (d.state === 'fall') {
+            // Фаза 1: снежинка падает и колышется, как в погодной сцене
+            d.life++;
+            // Переход к уменьшению: по времени жизни ИЛИ у нижнего края (без комков!)
+            if (d.life > d.maxFall || d.y > _H - 4) { d.state = 'shrink'; d.hl = 0; d.hm = 26 + Math.random() * 34; }
+          } else if (d.state === 'shrink') {
+            // Фаза 2: снежинка уменьшается и превращается в точку (scale 1.0 → 0.28), продолжая лететь
+            d.hl++; var _hp = d.hl / d.hm;
+            d.el.style.transform = 'scale(' + (1 - _hp * 0.72).toFixed(3) + ')';
+            if (d.hl > d.hm) { d.state = 'fade'; d.fl = 0; d.fm = 22 + Math.random() * 26; }
+          } else if (d.state === 'fade') {
+            // Фаза 3: точка летит дальше по траектории, уменьшается и пропадает (scale 0.28 → 0, opacity → 0)
+            d.fl++; var _fp = d.fl / d.fm;
+            d.el.style.transform = 'scale(' + (0.28 * (1 - _fp)).toFixed(3) + ')';
+            d.el.style.opacity = (d.op * (1 - _fp)).toFixed(2);
+            if (d.fl > d.fm) { d.el.remove(); _snow.splice(i, 1); }
+          }
+        }
+        requestAnimationFrame(_tickS);
+      }
+      for (var si = 0; si < 12; si++) _spawnS();
+      _tickS();
+    }
   }
 
   function initWeatherPopup() {}
@@ -6428,182 +6751,71 @@
     toggle.style.top = y + 'px';
   }
 
-  // Инициализация чата
-  function initAIChat() {
-    var toggle = document.getElementById('ai-chat-toggle');
+  // Открытие/закрытие окна чата (вызывается из пункта меню «AI чат»)
+  function toggleAIChatWindow() {
     var win = document.getElementById('ai-chat-window');
+    if (!win) return;
+    if (win.classList.contains('open')) { win.classList.remove('open'); return; }
+    // При первом открытии восстанавливаем сохранённую позицию окна (если есть)
+    try {
+      var saved = localStorage.getItem('ai_chat_win_pos');
+      if (saved) {
+        var p = JSON.parse(saved);
+        if (typeof p.x === 'number' && typeof p.y === 'number') {
+          win.style.left = p.x + 'px';
+          win.style.top = p.y + 'px';
+          win.style.right = 'auto';
+          win.style.bottom = 'auto';
+        }
+      }
+    } catch (e) {}
+    win.classList.add('open');
+    setTimeout(function () { var i = document.getElementById('ai-chat-input'); if (i) i.focus(); }, 200);
+  }
+
+  // Инициализация чата: окно перетаскивается за шапку; кнопки отправки/закрытия
+  function initAIChat() {
+    var win = document.getElementById('ai-chat-window');
+    if (!win) return;
     var closeBtn = document.getElementById('ai-chat-close');
     var sendBtn = document.getElementById('ai-chat-send');
     var input = document.getElementById('ai-chat-input');
+    var header = win.querySelector('.ai-chat-h');
 
-    if (!toggle || !win) return;
-
-    // === ПЕРЕТАСКИВАНИЕ КНОПКИ ===
-    var isDragging = false;
-    var startX = 0, startY = 0;
-    var startLeft = 0, startTop = 0;
-    var hasMoved = false;
-
-    // Восстанавливаем позицию или ставим стандартную (слева от кнопки «Выйти»)
-    try {
-      var savedPos = localStorage.getItem('ai_chat_pos');
-      if (savedPos) {
-        var pos = JSON.parse(savedPos);
-        var btnW = toggle.offsetWidth || 100;
-        var btnH = toggle.offsetHeight || 40;
-        if (pos.x >= 0 && pos.x <= window.innerWidth - btnW && pos.y >= 0 && pos.y <= window.innerHeight - btnH) {
-          toggle.style.right = 'auto';
-          toggle.style.bottom = 'auto';
-          toggle.style.left = pos.x + 'px';
-          toggle.style.top = pos.y + 'px';
-        } else {
-          localStorage.removeItem('ai_chat_pos');
-          positionDefaultAIButton(toggle);
-        }
-      } else {
-        positionDefaultAIButton(toggle);
-      }
-    } catch (e) {
-      positionDefaultAIButton(toggle);
+    var dragging = false, sx = 0, sy = 0, sL = 0, sT = 0;
+    function onStart(cx, cy, target) {
+      if (target && target.closest('.close-ai')) return; // кнопку «×» не тянем
+      dragging = true; sx = cx; sy = cy;
+      var r = win.getBoundingClientRect();
+      sL = r.left; sT = r.top;
     }
-
-    function onStart(clientX, clientY) {
-      isDragging = true;
-      hasMoved = false;
-      startX = clientX;
-      startY = clientY;
-      var rect = toggle.getBoundingClientRect();
-      startLeft = rect.left;
-      startTop = rect.top;
-      toggle.style.transition = 'none';
-      toggle.style.userSelect = 'none';
-    }
-
-    function onMove(clientX, clientY) {
-      if (!isDragging) return;
-      var dx = clientX - startX;
-      var dy = clientY - startY;
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasMoved = true;
-
-      var newX = startLeft + dx;
-      var newY = startTop + dy;
-
-      // Ограничения — не даём вытащить за экран
-      var btnW = toggle.offsetWidth;
-      var btnH = toggle.offsetHeight;
-      newX = Math.max(8, Math.min(newX, window.innerWidth - btnW - 8));
-      newY = Math.max(8, Math.min(newY, window.innerHeight - btnH - 8));
-
-      toggle.style.right = 'auto';
-      toggle.style.bottom = 'auto';
-      toggle.style.left = newX + 'px';
-      toggle.style.top = newY + 'px';
-      
-      // Если окно чата открыто — двигаем его вместе с кнопкой
-      if (win.classList.contains('open')) {
-        updateChatPos();
-      }
-    }
-
-    function onEnd() {
-      if (!isDragging) return;
-      isDragging = false;
-      toggle.style.transition = '';
-      toggle.style.userSelect = '';
-      // Сохраняем позицию
-      var rect = toggle.getBoundingClientRect();
-      try { localStorage.setItem('ai_chat_pos', JSON.stringify({ x: rect.left, y: rect.top })); } catch (e) {}
-    }
-
-    // Mouse
-    toggle.addEventListener('mousedown', function(e) {
-      onStart(e.clientX, e.clientY);
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', function(e) {
-      if (isDragging) onMove(e.clientX, e.clientY);
-    });
-    document.addEventListener('mouseup', onEnd);
-
-    // Touch
-    toggle.addEventListener('touchstart', function(e) {
-      if (e.touches.length === 1) onStart(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: true });
-    document.addEventListener('touchmove', function(e) {
-      if (isDragging && e.touches.length === 1) {
-        onMove(e.touches[0].clientX, e.touches[0].clientY);
-        e.preventDefault();
-      }
-    }, { passive: false });
-    document.addEventListener('touchend', onEnd);
-
-    // Открытие/закрытие (только если не было перетаскивания)
-    toggle.addEventListener('click', function() {
-      if (!hasMoved) {
-        if (win.classList.contains('open')) {
-          win.classList.remove('open');
-        } else {
-          updateChatPos(); // Рассчитываем позицию перед открытием
-          win.classList.add('open');
-          setTimeout(function() { if (input) input.focus(); }, 300);
-        }
-      }
-    });
-
-    // Позиционируем окно чата так, чтобы оно всегда было в пределах экрана
-    function updateChatPos() {
-      var rect = toggle.getBoundingClientRect();
-      var winW = win.offsetWidth || 380;
-      var winH = win.offsetHeight || 520;
-      var margin = 10;
-
-      var chatX, chatY;
-
-      // Расчёт по горизонтали
-      if (rect.right + margin + winW < window.innerWidth) {
-        // Хватает места справа
-        chatX = rect.right + margin;
-      } else if (rect.left - margin - winW > 0) {
-        // Хватает места слева
-        chatX = rect.left - margin - winW;
-      } else {
-        // Мало места с обеих сторон — прижимаем к левому краю
-        chatX = margin;
-      }
-
-      // Расчёт по вертикали
-      if (rect.bottom + margin + winH < window.innerHeight) {
-        // Хватает места снизу
-        chatY = rect.bottom + margin;
-      } else if (rect.top - margin - winH > 0) {
-        // Хватает места сверху
-        chatY = rect.top - margin - winH;
-      } else {
-        // Мало места — прижимаем к верхнему краю
-        chatY = margin;
-      }
-
-      // Применяем координаты
+    function onMove(cx, cy) {
+      if (!dragging) return;
+      var w = win.offsetWidth, h = win.offsetHeight;
+      var nx = Math.max(0, Math.min(sL + cx - sx, window.innerWidth - w));
+      var ny = Math.max(0, Math.min(sT + cy - sy, window.innerHeight - h));
+      win.style.left = nx + 'px';
+      win.style.top = ny + 'px';
       win.style.right = 'auto';
       win.style.bottom = 'auto';
-      win.style.left = chatX + 'px';
-      win.style.top = chatY + 'px';
+    }
+    function onEnd() {
+      if (!dragging) return;
+      dragging = false;
+      try { localStorage.setItem('ai_chat_win_pos', JSON.stringify({ x: parseInt(win.style.left, 10) || 0, y: parseInt(win.style.top, 10) || 0 })); } catch (e) {}
+    }
+    if (header) {
+      header.addEventListener('mousedown', function (e) { onStart(e.clientX, e.clientY, e.target); });
+      document.addEventListener('mousemove', function (e) { onMove(e.clientX, e.clientY); });
+      document.addEventListener('mouseup', onEnd);
+      header.addEventListener('touchstart', function (e) { if (e.touches.length === 1) onStart(e.touches[0].clientX, e.touches[0].clientY, e.target); }, { passive: true });
+      document.addEventListener('touchmove', function (e) { if (dragging && e.touches.length === 1) { onMove(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); } }, { passive: false });
+      document.addEventListener('touchend', onEnd);
     }
 
-    if (closeBtn) closeBtn.addEventListener('click', function() {
-      win.classList.remove('open');
-    });
-
+    if (closeBtn) closeBtn.addEventListener('click', function () { win.classList.remove('open'); });
     if (sendBtn) sendBtn.addEventListener('click', sendAIMessage);
-
-    if (input) {
-      input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendAIMessage();
-        }
-      });
-    }
+    if (input) input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAIMessage(); } });
   }
 
   /* ---------- TOAST ---------- */
@@ -6745,6 +6957,8 @@
     };
     var view = document.getElementById('view');
     if (view) view.style.padding = (S.screen === 'gmap') ? '0' : '';
+    // Останавливаем молнии при уходе с дашборда (на дашборде renderDashboard перезапустит их)
+    if (S.screen !== 'dashboard') stopLightning();
     // Обновляем задания из БД, чтобы подхватить изменения с сервера (синхронизация)
     if (window.SP_TASKS) S.tasks = window.SP_TASKS.getTasks();
     // Защита сессии: проверяем что текущий пользователь всё ещё активен
@@ -6839,6 +7053,7 @@
     else if (a === 'import-db') { var fi = document.getElementById('import-file'); if (fi) fi.click(); }
     else if (a === 'how-transfer') { e.preventDefault(); toast('ok', 'ПЕРЕНОС БАЗЫ: 1) В браузере, где уже есть пользователи → «Экспорт базы» → скачается users_db.json. 2) В новом браузере → «Импорт базы» → выберите этот файл → нажмите ОК (замена). Готово!'); }
     else if (a === 'logout') { DB.clearSession(); showLoginScreen(); }
+    else if (a === 'toggle-ai-chat') { toggleAIChatWindow(); }
     else if (a === 'optimize') { autoSchedule(); }
     else if (a === 'build-route') { buildYandexRoute(false); }
     else if (a === 'build-route-no-jam') { buildYandexRoute(true); }
