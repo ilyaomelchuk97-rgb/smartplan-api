@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>🏎 Дать газу · SmartPlan</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0b1220;font-family:Segoe UI,Roboto,sans-serif}
+#map{position:absolute;inset:0}
+#hud{position:absolute;left:14px;top:14px;z-index:20;background:rgba(15,23,42,.82);color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.4);backdrop-filter:blur(8px);pointer-events:none;min-width:140px}
+#hud .lbl{font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+#speedo{font-size:32px;font-weight:800;color:#38bdf8;line-height:1}
+#unit{font-size:13px;color:#94a3b8}
+#boost{color:#fbbf24;font-weight:700;margin-left:6px}
+#help{position:absolute;right:14px;bottom:14px;z-index:20;background:rgba(15,23,42,.82);color:#cbd5e1;padding:10px 14px;border-radius:12px;font-size:11.5px;line-height:1.8;backdrop-filter:blur(8px);pointer-events:none}
+#help kbd{background:#1e293b;border:1px solid #475569;border-radius:4px;padding:1px 6px;color:#fff;font-family:inherit;font-size:11px}
+#note{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:20;background:rgba(220,38,38,.92);color:#fff;padding:8px 18px;border-radius:20px;font-size:12.5px;font-weight:600;max-width:90vw;text-align:center;display:none}
+#loader{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:30;color:#fff;font-size:15px;background:rgba(15,23,42,.85);padding:18px 28px;border-radius:14px}
+.maplibregl-ctrl-top-right{margin-top:64px!important}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="loader">Загрузка 3D-карты и модели…</div>
+<div id="hud"><div class="lbl">Скорость</div><div><span id="speedo">0</span> <span id="unit">км/ч</span><span id="boost"></span></div><div style="font-size:11px;color:#94a3b8;margin-top:4px">Масштаб 1:1 · Минск</div></div>
+<div id="help"><kbd>W</kbd>/<kbd>↑</kbd> газ &nbsp; <kbd>S</kbd>/<kbd>↓</kbd> назад<br><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> руль &nbsp; <kbd>Shift</kbd> турбо<br><kbd>Space</kbd> тормоз &nbsp; колесо — зум</div>
+<div id="note"></div>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+
+// Стартовая точка и ключ из URL (?lat=&lng=&key=)
+var P = new URLSearchParams(location.search);
+var START = [parseFloat(P.get("lat")) || 53.9060, parseFloat(P.get("lng")) || 27.6027];
+var KEY = P.get("key") || "W7EjXYGEA3hzkGvx81JM";
+var PITCH = 62;
+
+// === НАСТРОЙКА МОДЕЛИ (твоя — нормализованная Tripo-модель, ориентация произвольная) ===
+var MODEL_ROT_X = Math.PI / 2;  // gltf +Y вверх → карта +Z вверх
+var MODEL_ROT_Y = 0;
+var MODEL_ROT_Z = 0;            // доворот носа: боком → 1.5708, задом → 3.1416
+var MODEL_SCALE = 2.4;          // нормализованная модель → реальные метры (~4.7м)
+var MODEL_Z = 0;                // вертикальное смещение в метрах: тонет → +0.4, висит → -0.4
+
+var map = new maplibregl.Map({
+  container: "map",
+  style: "https://api.maptiler.com/maps/streets-v2/style.json?key=" + KEY,
+  center: [START[1], START[0]], zoom: 17, pitch: PITCH, bearing: 0,
+  antialias: true, hash: false, maxPitch: 80, pitchWithRotate: true
+});
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+map.keyboard.disable();
+map.touchZoomRotate.disableRotation();
+
+var carState = { lat: START[0], lng: START[1], heading: 0, speed: 0 };
+var keys = {};
+window.addEventListener("keydown", function (e) {
+  keys[e.code] = true;
+  if (e.code === "Space" || e.code.indexOf("Arrow") === 0) e.preventDefault();
+});
+window.addEventListener("keyup", function (e) { keys[e.code] = false; });
+
+function showNote(t) { var n = document.getElementById("note"); if (n) { n.textContent = t; n.style.display = "block"; } }
+function hideNote() { var n = document.getElementById("note"); if (n) n.style.display = "none"; }
+
+// Заглушка-авто в реальных габаритах (метры): нос +Y (норд), Z вверх
+function placeholderCar() {
+  var g = new THREE.Group();
+  var paint = new THREE.MeshStandardMaterial({ color: 0xdc2626, metalness: 0.45, roughness: 0.4 });
+  var body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 4.3, 1.2), paint); body.position.z = 0.8; g.add(body);
+  var hood = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.3, 0.7), paint); hood.position.set(0, 1.5, 1.0); g.add(hood);
+  var cab = new THREE.Mesh(new THREE.BoxGeometry(1.65, 2.1, 0.95), new THREE.MeshStandardMaterial({ color: 0x0f2740, metalness: 0.3, roughness: 0.3 })); cab.position.set(0, -0.15, 1.5); g.add(cab);
+  var glass = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.9, 0.2), new THREE.MeshStandardMaterial({ color: 0x9fd0ff, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.55 })); glass.position.set(0, -0.15, 1.98); g.add(glass);
+  var wmat = new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 0.8 });
+  var wgeo = new THREE.CylinderGeometry(0.42, 0.42, 0.32, 20);
+  [[-0.95, 1.4], [0.95, 1.4], [-0.95, -1.4], [0.95, -1.4]].forEach(function (p) {
+    var w = new THREE.Mesh(wgeo, wmat); w.rotation.z = Math.PI / 2; w.position.set(p[0], p[1], 0.42); g.add(w);
+  });
+  var hmat = new THREE.MeshStandardMaterial({ color: 0xfff6cc, emissive: 0xffe88a, emissiveIntensity: 0.7 });
+  [[-0.6, 2.18], [0.6, 2.18]].forEach(function (p) { var h = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.18), hmat); h.position.set(p[0], p[1], 0.72); g.add(h); });
+  var rmat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, emissive: 0x660000, emissiveIntensity: 0.4 });
+  [[-0.6, -2.18], [0.6, -2.18]].forEach(function (p) { var r = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.18), rmat); r.position.set(p[0], p[1], 0.72); g.add(r); });
+  return g;
+}
+
+var carLayer = {
+  id: "car3d", type: "custom", renderingMode: "3d",
+  onAdd: function (m, gl) {
+    this.map = m;
+    this.camera = new THREE.Camera();
+    this.scene = new THREE.Scene();
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+    var dir = new THREE.DirectionalLight(0xffffff, 0.7); dir.position.set(1, 1, 2); this.scene.add(dir);
+    this.renderer = new THREE.WebGLRenderer({ canvas: m.getCanvas(), context: gl, antialias: true });
+    this.renderer.autoClear = false;
+    this.wrap = new THREE.Group();
+    this.scene.add(this.wrap);
+    this.orient = new THREE.Group();
+    this.wrap.add(this.orient);
+    this.model = placeholderCar();
+    this.orient.add(this.model);
+    var self = this;
+    // Реальная модель: car.glb рядом (та же папка, тот же источник — грузится надёжно)
+    var loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder); // модель пожата meshopt
+    loader.load("car.glb", function (gltf) {
+      var mdl = gltf.scene;
+      self.orient.remove(self.model);
+      self.model = mdl;
+      self.orient.add(mdl);
+      self.orient.rotation.set(MODEL_ROT_X, MODEL_ROT_Y, MODEL_ROT_Z);
+      self.orient.scale.setScalar(MODEL_SCALE);
+      self.orient.position.z = MODEL_Z;
+      hideNote();
+    }, undefined, function () {
+      showNote("Не удалось загрузить car.glb — едет заглушка. Проверь, что car.glb лежит рядом с этим файлом.");
+    });
+  },
+  render: function (gl, matrix) {
+    var mc = maplibregl.MercatorCoordinate.fromLngLat([carState.lng, carState.lat], 0);
+    var s = maplibregl.MercatorCoordinate.meterInMercatorUnits(carState.lat);
+    var tr = new THREE.Matrix4().makeTranslation(mc.x, mc.y, mc.z);
+    var sc = new THREE.Matrix4().makeScale(s, s, s);
+    this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix).multiply(tr).multiply(sc);
+    if (this.wrap) this.wrap.rotation.z = -carState.heading;
+    this.renderer.resetState();
+    this.renderer.render(this.scene, this.camera);
+    this.map.requestRepaint();
+  }
+};
+
+map.on("load", function () {
+  // 3D-здания из стиля
+  try {
+    var st = map.getStyle(); var bs = null;
+    for (var i = 0; i < st.layers.length; i++) { if (st.layers[i]["source-layer"] === "building") { bs = st.layers[i].source; break; } }
+    if (bs) {
+      map.addLayer({
+        id: "3d-buildings", source: bs, "source-layer": "building", type: "fill-extrusion", minzoom: 14,
+        paint: {
+          "fill-extrusion-color": ["interpolate", ["linear"], ["coalesce", ["get", "render_height"], ["get", "height"], 5], [0, "#e6e8ec"], [25, "#b8bfc9"], [60, "#8a93a3"]],
+          "fill-extrusion-height": ["coalesce", ["get", "render_height"], ["get", "height"], 4],
+          "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], ["get", "min_height"], 0],
+          "fill-extrusion-opacity": 0.92
+        }
+      });
+    }
+  } catch (e) {}
+  map.addLayer(carLayer);
+  var ld = document.getElementById("loader"); if (ld) ld.style.display = "none";
+});
+
+// Физика 1:1 (метры). heading: 0 = норд, +90° = ост (по часовой)
+var MAX = 13.9, BOOST = 27.8, ACC = 8.5, REV = 5, FR = 3.6;
+function readIn() {
+  var f = 0, s = 0;
+  if (keys["KeyW"] || keys["ArrowUp"]) f++;
+  if (keys["KeyS"] || keys["ArrowDown"]) f--;
+  if (keys["KeyA"] || keys["ArrowLeft"]) s--;
+  if (keys["KeyD"] || keys["ArrowRight"]) s++;
+  return { f: f, s: s, boost: !!(keys["ShiftLeft"] || keys["ShiftRight"]), brake: !!keys["Space"] };
+}
+function step(dt) {
+  var i = readIn();
+  var mx = i.boost ? BOOST : MAX;
+  carState.speed += i.f * ACC * dt;
+  if (i.f === 0) {
+    var fr = FR * dt;
+    if (Math.abs(carState.speed) <= fr) carState.speed = 0; else carState.speed -= Math.sign(carState.speed) * fr;
+  }
+  if (i.brake) {
+    var b = ACC * 2 * dt;
+    if (Math.abs(carState.speed) <= b) carState.speed = 0; else carState.speed -= Math.sign(carState.speed) * b;
+  }
+  carState.speed = Math.max(-REV, Math.min(mx, carState.speed));
+  var sr = 1.15 * dt * Math.min(1, Math.abs(carState.speed) / 3.5);
+  carState.heading += i.s * sr * (carState.speed >= 0 ? 1 : -1);
+  var dm = carState.speed * dt;
+  var dE = dm * Math.sin(carState.heading), dN = dm * Math.cos(carState.heading);
+  carState.lat += dN / 111320;
+  carState.lng += dE / (111320 * Math.cos(carState.lat * Math.PI / 180));
+}
+
+var last = performance.now(), spEl, boostEl;
+function loop(now) {
+  var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  step(dt);
+  map.jumpTo({ center: [carState.lng, carState.lat], bearing: carState.heading * 180 / Math.PI, pitch: PITCH });
+  if (!spEl) spEl = document.getElementById("speedo");
+  if (!boostEl) boostEl = document.getElementById("boost");
+  if (spEl) spEl.textContent = Math.round(Math.abs(carState.speed) * 3.6);
+  if (boostEl) boostEl.textContent = (readIn().boost && carState.speed > 0.5) ? "ТУРБО" : "";
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
