@@ -2932,20 +2932,69 @@
   // плохо находит улицу без типа (надо «улица Ленина», а не «Ленина»).
   // Универсальный геокодер: сначала Яндекс (лучше находит адреса Минска на русском),
   // при неудаче/недоступности — Nominatim (OSM). Координаты затем использует OSRM для маршрута.
+  // === Геокодеры: 2GIS, OpenCage, geocode.xyz (каскад до Nominatim) ===
+  function geocode2GIS(addr) {
+    var key = (window.SP_CONFIG && SP_CONFIG.twogisKey) || "";
+    if (!key) return Promise.resolve(null);
+    var q = addr; if (q.indexOf("Минск") === -1) q = "Минск, " + q;
+    return fetch("https://catalog.api.2gis.com/3.0/items/geocode?q=" + encodeURIComponent(q) + "&fields=items.point&key=" + key)
+      .then(function(r){return r.json();}).then(function(d){
+        if (d&&d.result&&d.result.items&&d.result.items[0]&&d.result.items[0].point) return {lat:d.result.items[0].point.lat,lng:d.result.items[0].point.lon};
+        return null;}).catch(function(){return null;});
+  }
+  function geocodeOpenCage(addr) {
+    var key = (window.SP_CONFIG && SP_CONFIG.opencageKey) || "";
+    if (!key) return Promise.resolve(null);
+    return fetch("https://api.opencagedata.com/geocode/v1/json?q=" + encodeURIComponent(addr) + "&key=" + key + "&language=ru&countrycode=by&limit=1")
+      .then(function(r){return r.json();}).then(function(d){
+        if (d&&d.results&&d.results[0]&&d.results[0].geometry) return {lat:d.results[0].geometry.lat,lng:d.results[0].geometry.lng};
+        return null;}).catch(function(){return null;});
+  }
+  function geocodeXYZ(addr) {
+    var q = addr.replace(/^г\.?\s*[Мм]инск[,]\s*/, "").trim();
+    if (q.indexOf("Минск") === -1) q = q + ", Минск";
+    return fetch("https://geocode.xyz/?json=1&locate=" + encodeURIComponent(q))
+      .then(function(r){return r.json();}).then(function(d){
+        if (d && !d.error && d.standard && d.standard.latt && d.standard.longt) {
+          var la = parseFloat(d.standard.latt), ln = parseFloat(d.standard.longt);
+          if (!isNaN(la) && !isNaN(ln)) return {lat: la, lng: ln};
+        } return null;}).catch(function(){return null;});
+  }
+  // Каскад: 2GIS → OpenCage → geocode.xyz → Nominatim (с раскрытием сокращений)
+  function geocodeCascading(addr) {
+    if (!addr || addr === "?") return Promise.resolve(null);
+    var stored = getTaskCoords(addr); if (stored) return Promise.resolve(stored);
+    return new Promise(function(resolve){
+      var k2=(window.SP_CONFIG&&SP_CONFIG.twogisKey)||"", kOC=(window.SP_CONFIG&&SP_CONFIG.opencageKey)||"";
+      var steps=[];
+      if(k2) steps.push(function(){return geocode2GIS(addr);});
+      if(kOC) steps.push(function(){return geocodeOpenCage(addr);});
+      steps.push(function(){return geocodeXYZ(addr);});
+      steps.push(function(){return geocodeAddressNominatim(addr);});
+      function tryNext(i){
+        if(i>=steps.length){resolve(null);return;}
+        steps[i]().then(function(c){
+          if(c&&!isNaN(parseFloat(c.lat))&&!isNaN(parseFloat(c.lng))){saveTaskCoords(addr,c.lat,c.lng);resolve(c);}
+          else tryNext(i+1);
+        }).catch(function(){tryNext(i+1);});
+      }
+      tryNext(0);
+    });
+  }
   function geocodeAddressUnified(addr) {
     return new Promise(function (resolve) {
       var settled = false;
-      function nominatim() { geocodeAddressNominatim(addr).then(function (c) { if (!settled) { settled = true; resolve(c); } }); }
+      function fallback() { geocodeCascading(addr).then(function (c) { if (!settled) { settled = true; resolve(c); } }); }
       function tryYandex() {
         geocodeAddr(addr).then(function (c) {
           if (settled) return;
           if (c && c[0] != null) { settled = true; resolve({ lat: c[0], lng: c[1] }); }
-          else nominatim();
+          else fallback();
         });
       }
       if (window.ymaps && window.ymaps.geocode) tryYandex();
-      else ensureYandex(tryYandex, nominatim);
-      setTimeout(function () { if (!settled) { settled = true; nominatim(); } }, 4000); // защита от зависания Яндекса
+      else ensureYandex(tryYandex, fallback);
+      setTimeout(function () { if (!settled) { settled = true; fallback(); } }, 4000); // защита от зависания Яндекса
     });
   }
 
@@ -3075,7 +3124,7 @@
       function next() {
         if (i >= addresses.length) { resolve(results); return; }
         var addrItem = addresses[i];
-        geocodeAddressNominatim(addrItem.addr || '').then(function (c) {
+        geocodeCascading(addrItem.addr || '').then(function (c) {
           results.push({ src: addrItem, coords: c });
           if (onEach) onEach(addrItem, c);
           i++;
@@ -3244,7 +3293,7 @@
                 if (p[0] < mnLat) mnLat = p[0]; if (p[0] > mxLat) mxLat = p[0];
                 if (p[1] < mnLng) mnLng = p[1]; if (p[1] > mxLng) mxLng = p[1];
               });
-              var buf = 0.0008;
+              var buf = 0.0015; // ~150 м — шире обнаружение попадания
               mnLat -= buf; mxLat += buf; mnLng -= buf; mxLng += buf;
               var hit = false;
               for (var ri = 0; ri < routeGeom.length; ri++) {
@@ -3256,7 +3305,7 @@
                 mLat /= cl.latlngs.length; mLng /= cl.latlngs.length;
                 var f = cl.latlngs[0], l = cl.latlngs[cl.latlngs.length - 1];
                 var dx = l[0] - f[0], dy = l[1] - f[1], len = Math.sqrt(dx * dx + dy * dy) || 1;
-                var off = 0.0045; // ~500 м перпендикулярно закрытию
+                var off = 0.009; // ~1 км перпендикулярно закрытию — OSRM вынужден объехать
                 var pLng = -dy / len, pLat = dx / len; // перпендикуляр
                 var candA = [mLng + pLng * off, mLat + pLat * off];
                 var candB = [mLng - pLng * off, mLat - pLat * off];
@@ -3311,7 +3360,25 @@
             }).then(function(r) { return r.json(); }).then(function(res2) {
               if (res2 && res2.routes && res2.routes[0]) {
                 var rt = res2.routes[0];
-                callback({ ok: true, geometry: rt.geometry.coordinates || [], km: rt.distance / 1000, min: Math.round(rt.duration / 60), legs: rt.legs || [], waypoints: res.waypoints || [] });
+                var newGeom = rt.geometry.coordinates || [];
+                // Проверяем: новый маршрут всё ещё через закрытие?
+                var stillHit = false;
+                manualClosures.forEach(function(cl) {
+                  if (stillHit) return;
+                  var cMn = Infinity, cMx = -Infinity, cMn2 = Infinity, cMx2 = -Infinity;
+                  cl.latlngs.forEach(function(p) { if(p[0]<cMn)cMn=p[0]; if(p[0]>cMx)cMx=p[0]; if(p[1]<cMn2)cMn2=p[1]; if(p[1]>cMx2)cMx2=p[1]; });
+                  cMn-=0.0015; cMx+=0.0015; cMn2-=0.0015; cMx2+=0.0015;
+                  for (var gi = 0; gi < newGeom.length; gi++) {
+                    if (newGeom[gi][1]>=cMn && newGeom[gi][1]<=cMx && newGeom[gi][0]>=cMn2 && newGeom[gi][0]<=cMx2) { stillHit = true; break; }
+                  }
+                });
+                if (stillHit) {
+                  // reroute не помог — возвращаем исходный (лучше короткий, чем крюк через закрытие)
+                  callback({ ok: true, geometry: trip.geometry.coordinates || [], km: trip.distance / 1000, min: Math.round(trip.duration / 60), legs: trip.legs || [], waypoints: res.waypoints || [] });
+                } else {
+                  // reroute успешен — маршрут обходит закрытие
+                  callback({ ok: true, geometry: newGeom, km: rt.distance / 1000, min: Math.round(rt.duration / 60), legs: rt.legs || [], waypoints: res.waypoints || [] });
+                }
               } else {
                 callback({ ok: true, geometry: trip.geometry.coordinates || [], km: trip.distance / 1000, min: Math.round(trip.duration / 60), legs: trip.legs || [], waypoints: res.waypoints || [] });
               }
@@ -3335,10 +3402,13 @@
 
       } else if (provider === 'ors') {
         var orsKey = (window.SP_CONFIG && SP_CONFIG.orsApiKey) || '';
+        var ap = buildAvoidPolygons();
+        var orsBody = { coordinates: coords };
+        if (ap.length) orsBody.options = { avoid_polygons: { type: 'MultiPolygon', coordinates: ap.map(function(r){ return [r]; }) } };
         fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
           method: 'POST',
           headers: { 'Authorization': orsKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ coordinates: coords })
+          body: JSON.stringify(orsBody)
         }).then(function(r) { return r.json(); }).then(function(res) {
           if (res && res.features && res.features[0]) {
             var feat = res.features[0];
