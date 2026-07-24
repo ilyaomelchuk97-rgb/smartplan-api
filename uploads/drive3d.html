@@ -47,6 +47,7 @@ var CAR_URL = "data:model/gltf-binary;base64,Z2xURgIAAAA0FhYAiAkAAEpTT057ImFzc2V
 // Настройки модели (нормализованная Tripo): нос +X, верх +Y
 var MODEL_ROT_X = Math.PI / 2, MODEL_ROT_Y = Math.PI / 2, MODEL_ROT_Z = 0;
 var MODEL_SCALE = 4.7, MODEL_Z = 0.9; // 0.9 — поднять, чтобы колёса на асфальте (модель центрирована по высоте)
+var NOSE_YAW = -Math.PI / 2; // поворот модели носом вперёд (подкрути клавишами , и .)
 
 var map = new maplibregl.Map({
   container: "map",
@@ -58,6 +59,7 @@ map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-
 map.keyboard.disable();
 map.dragPan.disable();
 map.dragRotate.disable();
+map.scrollZoom.disable();
 map.doubleClickZoom.disable();
 map.touchZoomRotate.disable();
 
@@ -66,6 +68,7 @@ function setNote(t, ok) { var n = document.getElementById("note"); if (n) { n.te
 var carState = { lat: START[0], lng: START[1], heading: 0, speed: 0 };
 var viewMode = "chase";            // chase | interior
 var orbitYaw = 0, orbitPitch = 62; // вращение камеры мышью (для chase)
+var camZoom = 17; // зум камеры к машине (колесо мыши)
 var modelLoaded = false;
 
 var carLayer = {
@@ -81,11 +84,12 @@ var carLayer = {
     this.renderer = new THREE.WebGLRenderer({ canvas: m.getCanvas(), context: gl, antialias: true });
     this.renderer.autoClear = false;
     this.wrap = new THREE.Group(); this.scene.add(this.wrap);
+    this.yawGroup = new THREE.Group(); this.wrap.add(this.yawGroup);
     this.orient = new THREE.Group();
     this.orient.rotation.set(MODEL_ROT_X, MODEL_ROT_Y, MODEL_ROT_Z);
     this.orient.scale.setScalar(MODEL_SCALE);
     this.orient.position.z = MODEL_Z;
-    this.wrap.add(this.orient);
+    this.yawGroup.add(this.orient);
     var self = this;
     // встроенная модель (base64) — грузится без сервера
     setNote("Загружаю 3D-модель…");
@@ -107,11 +111,12 @@ var carLayer = {
     var sc = new THREE.Matrix4().makeScale(s, s, s);
     this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix).multiply(tr).multiply(sc);
     if (this.wrap) this.wrap.rotation.z = -carState.heading;
+    if (this.yawGroup) this.yawGroup.rotation.z = NOSE_YAW;
     if (this.scene) this.scene.traverse(function (o) { o.frustumCulled = false; });
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
     var dbg = document.getElementById("dbg");
-    if (dbg) dbg.textContent = "кадр " + this._fc + " · модель: " + (modelLoaded ? "да" : "…") + " · вид: " + viewMode;
+    if (dbg) dbg.textContent = "кадр " + this._fc + " · модель: " + (modelLoaded ? "да" : "…") + " · нос: " + Math.round(NOSE_YAW * 180 / Math.PI) + "°";
     this.map.requestRepaint();
   }
 };
@@ -140,6 +145,8 @@ var keys = {};
 window.addEventListener("keydown", function (e) {
   keys[e.code] = true;
   if (e.code === "KeyC") { viewMode = (viewMode === "chase") ? "interior" : "chase"; }
+  if (e.code === "Comma") NOSE_YAW -= 0.1;
+  if (e.code === "Period") NOSE_YAW += 0.1;
   if (e.code === "Space" || e.code.indexOf("Arrow") === 0) e.preventDefault();
 });
 window.addEventListener("keyup", function (e) { keys[e.code] = false; });
@@ -156,6 +163,7 @@ function initMouse() {
     lx = e.clientX; ly = e.clientY;
   });
   window.addEventListener("mouseup", function () { dragging = false; c.classList.remove("dragging"); });
+  c.addEventListener("wheel", function (e) { e.preventDefault(); camZoom = Math.max(14, Math.min(22, camZoom - (e.deltaY > 0 ? 0.6 : -0.6))); }, { passive: false });
 }
 map.on("load", initMouse);
 
@@ -204,10 +212,10 @@ function loop(now) {
   step(dt);
   var bearing = carState.heading * 180 / Math.PI;
   if (viewMode === "interior") {
-    map.jumpTo({ center: [carState.lng, carState.lat], bearing: bearing, pitch: 85, zoom: 19 });
+    map.jumpTo({ center: [carState.lng, carState.lat], bearing: bearing, pitch: 85, zoom: 19.5 });
     if (carLayer.orient) carLayer.orient.visible = false;
   } else {
-    map.jumpTo({ center: [carState.lng, carState.lat], bearing: bearing - orbitYaw, pitch: orbitPitch, zoom: 17 });
+    map.jumpTo({ center: [carState.lng, carState.lat], bearing: bearing - orbitYaw, pitch: orbitPitch, zoom: camZoom });
     if (carLayer.orient) carLayer.orient.visible = true;
   }
   if (!spEl) spEl = document.getElementById("speedo");
@@ -220,5 +228,5 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2007e8c4c2feeb7',t:'MTc4NDg3MDYyMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a20089d05f9b7d8d',t:'MTc4NDg3MTA4Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
