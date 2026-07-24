@@ -26,8 +26,8 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0b1220;font
 </head>
 <body>
 <div id="map"></div>
-<div id="hud"><div class="lbl">Скорость</div><div><span id="speedo">0</span> <span id="unit">км/ч</span><span id="boost"></span></div><div id="gear">D</div></div>
-<div id="help"><kbd>W</kbd> газ · <kbd>S</kbd> тормоз/зад<br><kbd>A</kbd> <kbd>D</kbd> руль · <kbd>Shift</kbd> нитро<br><kbd>Space</kbd> ручник(дрифт) · <kbd>C</kbd> салон<br>мышь — камера · колесо — зум<br><b>подстройка модели:</b> <kbd>,</kbd><kbd>.</kbd> нос · <kbd>[</kbd><kbd>]</kbd> высота · <kbd>-</kbd><kbd>=</kbd> размер</div>
+<div id="hud"><div class="lbl">Скорость</div><div><span id="speedo">0</span> <span id="unit">км/ч</span><span id="boost"></span></div><div id="gear">D</div><button id="driftBtn" style="margin-top:8px;padding:6px 14px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;pointer-events:auto">💨 ДРИФТ: ВЫКЛ</button></div>
+<div id="help"><kbd>W</kbd> газ · <kbd>S</kbd> тормоз/зад<br><kbd>A</kbd> <kbd>D</kbd> руль · <kbd>Shift</kbd> нитро<br><kbd>Space</kbd> ручник · <kbd>C</kbd> салон · кнопка 💨 ДРИФТ<br>мышь — камера · колесо — зум<br><b>подстройка модели:</b> <kbd>,</kbd><kbd>.</kbd> нос · <kbd>[</kbd><kbd>]</kbd> высота · <kbd>-</kbd><kbd>=</kbd> размер</div>
 <div id="dbg">кадр 0</div>
 <div id="note"></div>
 
@@ -63,6 +63,7 @@ function setNote(t, ok) { var n = document.getElementById("note"); if (n) { n.te
 
 var car = { lat: START[0], lng: START[1], heading: 0, speed: 0, steer: 0 };
 var viewMode = "chase", orbitYaw = 0, orbitPitch = 62, camZoom = 17, camBearing = 0, wheelSpin = 0, modelLoaded = false;
+var driftMode = false;
 
 var carLayer = {
   id: "car3d", type: "custom", renderingMode: "3d",
@@ -99,6 +100,58 @@ var carLayer = {
       setNote("Модель готова ✓ — жми W"); setTimeout(function () { setNote(""); }, 3000);
     }, undefined, function (err) { setNote("Ошибка модели: " + (err && err.message || err), false); console.error(err); });
   },
+  spawnSmoke: function () {
+    if (!driftMode || Math.abs(car.speed) < 2 || !this.wrap || !this.scene) return;
+    var intensity = Math.min(1, Math.abs(car.speed) / 20);
+    if (Math.random() > intensity * 0.8) return;
+    // 4 позиции колёс (модельное пространство)
+    var positions = [[0.28,0.21],[0.28,-0.21],[-0.28,0.21],[-0.28,-0.21]];
+    var pi = Math.floor(Math.random() * 4);
+    var p = positions[pi];
+    var tex = this.makeSmokeTexture();
+    var mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.5, depthWrite: false });
+    var sp = new THREE.Sprite(mat);
+    var sc = 0.5 + Math.random() * 0.5;
+    sp.scale.set(sc, sc, 1);
+    sp.position.set(p[0] + (Math.random()-0.5)*0.1, -0.09, p[1] + (Math.random()-0.5)*0.1);
+    sp.userData = { life: 0, maxLife: 1.0 + Math.random() * 0.5, baseScale: sc, vy: 0.3 + Math.random() * 0.3, vx: (Math.random()-0.5)*0.2 };
+    this.orient.add(sp);
+    this.smokeParticles.push(sp);
+    if (this.smokeParticles.length > 80) { var old = this.smokeParticles.shift(); if (old.parent) old.parent.remove(old); }
+  },
+  makeSmokeTexture: (function(){
+    var cached = null;
+    return function(){
+      if (cached) return cached;
+      var cv = document.createElement("canvas"); cv.width = 64; cv.height = 64;
+      var cx = cv.getContext("2d");
+      var grd = cx.createRadialGradient(32,32,0,32,32,32);
+      grd.addColorStop(0,"rgba(200,200,210,0.9)");
+      grd.addColorStop(0.4,"rgba(180,180,195,0.5)");
+      grd.addColorStop(1,"rgba(160,160,180,0)");
+      cx.fillStyle = grd; cx.fillRect(0,0,64,64);
+      cached = new THREE.CanvasTexture(cv);
+      return cached;
+    };
+  })(),
+  updateSmoke: function (dt) {
+    if (!this.smokeParticles || !this.smokeParticles.length) return;
+    for (var i = this.smokeParticles.length - 1; i >= 0; i--) {
+      var sp = this.smokeParticles[i];
+      sp.userData.life += dt;
+      var t = sp.userData.life / sp.userData.maxLife;
+      if (t >= 1) {
+        if (sp.parent) sp.parent.remove(sp);
+        this.smokeParticles.splice(i, 1);
+      } else {
+        var grow = sp.userData.baseScale * (1 + t * 2.5);
+        sp.scale.set(grow, grow, 1);
+        sp.position.y += sp.userData.vy * dt;
+        sp.position.x += sp.userData.vx * dt;
+        sp.material.opacity = 0.5 * (1 - t);
+      }
+    }
+  },
   render: function (gl, matrix) {
     this._fc = (this._fc || 0) + 1;
     var mc = maplibregl.MercatorCoordinate.fromLngLat([car.lat ? 0 : 0, 0]); // placeholder
@@ -112,6 +165,8 @@ var carLayer = {
     if (this.orient) { this.orient.rotation.set(MODEL_ROT_X, MODEL_ROT_Y, MODEL_ROT_Z); this.orient.scale.setScalar(MODEL_SCALE); this.orient.position.z = MODEL_Z; }
     if (this.wheels) for (var _wi = 0; _wi < this.wheels.length; _wi++) this.wheels[_wi].rotation.z = wheelSpin;
     if (this.scene) this.scene.traverse(function (o) { o.frustumCulled = false; });
+    this.spawnSmoke();
+    this.updateSmoke(0.016);
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
     var dbg = document.getElementById("dbg");
@@ -136,6 +191,12 @@ map.on("load", function () {
     });
   } catch (e) { console.warn("buildings:", e); }
   map.addLayer(carLayer);
+  var driftBtn = document.getElementById("driftBtn");
+  if (driftBtn) driftBtn.onclick = function() {
+    driftMode = !driftMode;
+    driftBtn.textContent = driftMode ? "💨 ДРИФТ: ВКЛ" : "💨 ДРИФТ: ВЫКЛ";
+    driftBtn.style.background = driftMode ? "#f59e0b" : "#dc2626";
+  };
   var c = map.getCanvas();
   var dragging = false, lx = 0, ly = 0;
   c.addEventListener("mousedown", function (e) { if (e.button === 0) { dragging = true; lx = e.clientX; ly = e.clientY; c.classList.add("dragging"); } });
@@ -190,6 +251,7 @@ function step(dt) {
   var maxDelta = 0.30 * (1 - 0.55 * Math.min(1, Math.abs(car.speed) / top)); // ~17° → радиус ~10м как у реального авто
   var delta = car.steer * maxDelta;
   if (hand) delta *= 1.5; // ручник → острее (дрифт)
+  if (driftMode) { delta *= 2.2; car.speed *= 0.998; } // дрифт: острый занос + лёгкая потеря скорости
   // велосипедная модель: скорость рысканья ω = (v / L) · tan(δ) — нос ведёт по дуге
   car.heading += (car.speed / WHEELBASE) * Math.tan(delta) * dt;
 
@@ -241,5 +303,5 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2014e32aea6aef1',t:'MTc4NDg3OTEyNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a203234a8b564c6b',t:'MTc4NDg5ODM0MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
