@@ -2417,7 +2417,7 @@
     // ВСЕГДА пересоздаём содержимое → свежий #wx-map-canvas без устаревшего Leaflet-id (фикс повторного открытия)
     ov.innerHTML = '<div id="wx-map-window">' +
       '<div id="wx-map-header">' +
-        '<button id=\"wx-yandex-btn\" class=\"wx-yandex-open\" data-action=\"wx-tab\" data-tab=\"yandex\" title=\"Открыть Яндекс Погоду\">🌧 Яндекс Погода</button>' +
+        '<button id=\"wx-yandex-btn\" class=\"wx-yandex-open\" data-action=\"open-yandex\" title=\"Открыть Яндекс Погоду\">🌧 Яндекс Погода</button>' +
         '<span class="wx-title">🗺 Карта погоды · Минск и Минский район</span>' +
         '<div id="wx-basemap-sel">' +
           '<button class="wx-bm-btn on" data-action="wx-basemap" data-bm="osm">OSM</button>' +
@@ -2432,10 +2432,6 @@
         '<div id="wx-particles" style="display:none"></div>' +
         '<div id="wx-layers" class="wx-layers"></div>' +
         '<div id="wx-timeline" class="wx-timeline"></div>' +
-        '<div id="wx-yandex">' +
-          '<div id="wx-yandex-bar"><button class="wx-back" data-action="wx-tab" data-tab="map">← Карта погоды</button><a href="https://yandex.ru/pogoda/minsk" target="_blank" rel="noopener">Если не открылось — в новой вкладке →</a></div>' +
-          '<iframe id="wx-yandex-frame" src="about:blank"></iframe>' +
-        '</div>' +
       '</div>' +
     '</div>';
     ov.classList.add('show');
@@ -2466,26 +2462,6 @@
     if (ov) ov.classList.remove('show');
   }
 
-
-  // Переключение вкладок: 'Карта погоды' (Leaflet) / 'Яндекс Погода' (iframe).
-  // Яндекс блокирует встраивание (CSP frame-ancestors) — iframe может быть пустым,
-  // поэтому в плашке есть кнопка открытия в новой вкладке (= 'как в браузере').
-  function switchWxTab(name) {
-    if (!WXM) return;
-    var isYandex = (name === 'yandex');
-    var ybx = document.getElementById('wx-yandex');
-    if (ybx) ybx.style.display = isYandex ? 'flex' : 'none';
-    var ybtn = document.getElementById('wx-yandex-btn');
-    if (ybtn) ybtn.classList.toggle('on', isYandex);
-    if (isYandex) {
-      var fr = document.getElementById('wx-yandex-frame');
-      var url = ((window.SP_CONFIG && SP_CONFIG.serverUrl) || '') + '/api/yandex-weather';
-      if (fr && fr.getAttribute('src') !== url) fr.src = url;
-    } else if (WXM.map) {
-      setTimeout(function () { WXM.map.invalidateSize(); }, 60);
-      setTimeout(function () { if (WXM && WXM.map) WXM.map.invalidateSize(); }, 250);
-    }
-  }
 
   // Левая верхняя панель выбора слоёв (мультивыбор)
   function buildWxLayerPanel() {
@@ -2598,6 +2574,7 @@
     window._wxMap = map; WXM.map = map;
     map.on('zoomend', function () { renderWxHour(); });
     map.on('moveend', function () { if (WXM) renderWxCellParticles(!!WXM._pR, !!WXM._pS); });
+    map.on('click', function (e) { showWxPointData(e.latlng); });
     WXM.radarPane = map.createPane('wxradar'); WXM.radarPane.style.zIndex = 450;
     var stormPane = map.createPane('wxstorm'); stormPane.style.zIndex = 460;
     WXM.regionGroup = window.L.layerGroup().addTo(map);
@@ -2740,6 +2717,32 @@
   }
 
   // Отрисовка: окантовки Минск+Минский район + ячейки сетки + метки
+  // Клик по карте: показать погоду в точке (ближайшая fetch-точка, текущий час).
+  // Формат: иконка сверху, значение снизу — одинаково для всех параметров (дождь/снег и т.д.).
+  function wxPopItem(ic, val, col) {
+    return '<div class="wx-pop-item"><span class="wx-pop-ic">' + ic + '</span><span class="wx-pop-val" style="color:' + col + '">' + val + '</span></div>';
+  }
+  function showWxPointData(latlng) {
+    if (!WXM || !WXM.map) return;
+    var lat = latlng.lat, lng = latlng.lng, bi = 0, bd = 1e18;
+    for (var i = 0; i < WX_FETCH.length; i++) {
+      var d = (WX_FETCH[i][0] - lat) * (WX_FETCH[i][0] - lat) + (WX_FETCH[i][1] - lng) * (WX_FETCH[i][1] - lng);
+      if (d < bd) { bd = d; bi = i; }
+    }
+    var rec = WXM.fetchData[bi] ? WXM.fetchData[bi][WXM.hour] : null;
+    var html = '<div class="wx-pop">';
+    if (!rec) {
+      html += '<div class="wx-pop-empty">Нет данных в этой точке</div>';
+    } else {
+      html += wxPopItem('🌡', rec.temp != null ? Math.round(rec.temp) + '°' : '—', rec.temp != null ? tempColor(rec.temp) : '#94a3b8');
+      html += wxPopItem('🌧', rec.rain > 0 ? (Math.round(rec.rain * 10) / 10) + '' : '0', '#38bdf8');
+      html += wxPopItem('❄', rec.snow > 0 ? (Math.round(rec.snow * 10) / 10) + '' : '0', '#94a3b8');
+      html += wxPopItem('💨', Math.round(rec.wind) + '', '#a78bfa');
+    }
+    html += '</div>';
+    window.L.popup({ className: 'wx-popup', closeButton: true, offset: [0, -4] }).setLatLng(latlng).setContent(html).openOn(WXM.map);
+  }
+
   function renderWxHour() {
     if (!WXM || !WXM.map) return;
     var map = WXM.map, h = WXM.hour;
@@ -2786,21 +2789,7 @@
     WXM._pS = !!(anyOn && WXM.layers.snow && hasSnow);
     renderWxCellParticles(WXM._pR, WXM._pS);
     updateWxParticles(anyOn && WXM.layers.wind);
-    // Метки — только в основных районах (WX_LABELS, ~40 точек пропорционально по карте)
-    WXM.labelGroup.clearLayers();
-    if (anyOn) {
-      WX_LABELS.forEach(function (p) {
-        var rec = WXM.fetchData[p.fi] ? WXM.fetchData[p.fi][h] : null;
-        if (!rec) return;
-        var rows = '';
-        if (WXM.layers.temp && rec.temp != null) rows += wxValRow('🌡', Math.round(rec.temp) + '°', tempColor(rec.temp));
-        if (WXM.layers.rain) rows += wxValRow('🌧', rec.rain > 0 ? (Math.round(rec.rain * 10) / 10) + '' : '0', '#e0f2fe');
-        if (WXM.layers.snow) rows += wxValRow('❄', rec.snow > 0 ? (Math.round(rec.snow * 10) / 10) + '' : '0', '#bae6fd');
-        if (WXM.layers.wind) rows += wxValRow('💨', Math.round(rec.wind), '#ddd6fe');
-        var lh = '<div class="wx-cell-label"><div class="wx-cl-vals">' + rows + '</div></div>';
-        WXM.labelGroup.addLayer(window.L.marker([p.lat, p.lng], { icon: window.L.divIcon({ html: lh, className: '', iconSize: [60, 0], iconAnchor: [30, 0] }), interactive: false, zIndexOffset: 600 }));
-      });
-    }
+    WXM.labelGroup.clearLayers(); // меток нет — данные по клику
     WXM.stormGroup.clearLayers();
     if (anyOn) {
       for (var fi in WXM.fetchData) {
@@ -2832,7 +2821,9 @@
     WXM.dropGroup.clearLayers();
     if ((!rain && !snow) || WXM.map.getZoom() < 11) return;
     var map = WXM.map, h = WXM.hour, view = map.getBounds();
+    var added = 0;
     WXM.cellLayers.forEach(function (cl) {
+      if (added >= 50) return;            // лимит для производительности
       var rec = WXM.fetchData[cl.fi] ? WXM.fetchData[cl.fi][h] : null;
       if (!rec) return;
       var type = (rain && rec.rain > 0) ? 'rain' : ((snow && rec.snow > 0) ? 'snow' : null);
@@ -2842,7 +2833,7 @@
       var nw = map.latLngToContainerPoint(b.getNorthWest());
       var se = map.latLngToContainerPoint(b.getSouthEast());
       var w = Math.max(6, Math.abs(se.x - nw.x)), hh = Math.max(6, Math.abs(se.y - nw.y));
-      var n = 2;
+      var n = 1;
       var html = '<div class="wx-cdrop wx-cdrop-' + type + '">';
       for (var i = 0; i < n; i++) {
         if (type === 'rain') {
@@ -2853,6 +2844,7 @@
       }
       html += '</div>';
       WXM.dropGroup.addLayer(window.L.marker(b.getCenter(), { icon: window.L.divIcon({ html: html, className: '', iconSize: [w, hh], iconAnchor: [w / 2, hh / 2] }), interactive: false, keyboard: false, zIndexOffset: 550 }));
+      added++;
     });
   }
 
@@ -9151,7 +9143,7 @@
     else if (a === 'wx-tl-next') { if (WXM) setWxHour(WXM.hour + 1); }
     else if (a === 'wx-tl-play') { toggleWxPlay(); }
     else if (a === 'wx-basemap') { setWxBasemap(el.getAttribute('data-bm')); }
-    else if (a === 'wx-tab') { switchWxTab(el.getAttribute('data-tab')); }
+    else if (a === 'open-yandex') { window.open('https://yandex.ru/pogoda/minsk', '_blank'); }
     else if (a === 'open-hourly') { openHourlyWeather(parseInt(el.dataset.off, 10)); }
     else if (a === 'kpi-today') { kpiToday(); }
     else if (a === 'kpi-overloads') { kpiOverloads(); }
