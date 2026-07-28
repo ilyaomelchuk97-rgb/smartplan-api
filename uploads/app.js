@@ -2417,6 +2417,7 @@
     // ВСЕГДА пересоздаём содержимое → свежий #wx-map-canvas без устаревшего Leaflet-id (фикс повторного открытия)
     ov.innerHTML = '<div id="wx-map-window">' +
       '<div id="wx-map-header">' +
+        '<button id=\"wx-yandex-btn\" class=\"wx-yandex-open\" data-action=\"wx-tab\" data-tab=\"yandex\" title=\"Открыть Яндекс Погоду\">🌧 Яндекс Погода</button>' +
         '<span class="wx-title">🗺 Карта погоды · Минск и Минский район</span>' +
         '<div id="wx-basemap-sel">' +
           '<button class="wx-bm-btn on" data-action="wx-basemap" data-bm="osm">OSM</button>' +
@@ -2424,13 +2425,17 @@
           '<button class="wx-bm-btn" data-action="wx-basemap" data-bm="yandex" title="Яндекс.Карта (проекция EPSG:3395)">Яндекс</button>' +
         '</div>' +
         '<button id="wx-map-close" class="x" data-action="close-wx-map" title="Закрыть">×</button>' +
-      '</div>' +
-      '<div id="wx-map-body">' +
+    '</div>' +
+    '<div id="wx-map-body">' +
         '<div id="wx-loading">Загрузка карты погоды…</div>' +
         '<div id="wx-map-canvas" style="display:none"></div>' +
         '<div id="wx-particles" style="display:none"></div>' +
         '<div id="wx-layers" class="wx-layers"></div>' +
         '<div id="wx-timeline" class="wx-timeline"></div>' +
+        '<div id="wx-yandex">' +
+          '<div id="wx-yandex-bar"><button class="wx-back" data-action="wx-tab" data-tab="map">← Карта погоды</button><a href="https://yandex.ru/pogoda/minsk" target="_blank" rel="noopener">Если не открылось — в новой вкладке →</a></div>' +
+          '<iframe id="wx-yandex-frame" src="about:blank"></iframe>' +
+        '</div>' +
       '</div>' +
     '</div>';
     ov.classList.add('show');
@@ -2461,6 +2466,26 @@
     if (ov) ov.classList.remove('show');
   }
 
+
+  // Переключение вкладок: 'Карта погоды' (Leaflet) / 'Яндекс Погода' (iframe).
+  // Яндекс блокирует встраивание (CSP frame-ancestors) — iframe может быть пустым,
+  // поэтому в плашке есть кнопка открытия в новой вкладке (= 'как в браузере').
+  function switchWxTab(name) {
+    if (!WXM) return;
+    var isYandex = (name === 'yandex');
+    var ybx = document.getElementById('wx-yandex');
+    if (ybx) ybx.style.display = isYandex ? 'flex' : 'none';
+    var ybtn = document.getElementById('wx-yandex-btn');
+    if (ybtn) ybtn.classList.toggle('on', isYandex);
+    if (isYandex) {
+      var fr = document.getElementById('wx-yandex-frame');
+      var url = ((window.SP_CONFIG && SP_CONFIG.serverUrl) || '') + '/api/yandex-weather';
+      if (fr && fr.getAttribute('src') !== url) fr.src = url;
+    } else if (WXM.map) {
+      setTimeout(function () { WXM.map.invalidateSize(); }, 60);
+      setTimeout(function () { if (WXM && WXM.map) WXM.map.invalidateSize(); }, 250);
+    }
+  }
 
   // Левая верхняя панель выбора слоёв (мультивыбор)
   function buildWxLayerPanel() {
@@ -9126,6 +9151,7 @@
     else if (a === 'wx-tl-next') { if (WXM) setWxHour(WXM.hour + 1); }
     else if (a === 'wx-tl-play') { toggleWxPlay(); }
     else if (a === 'wx-basemap') { setWxBasemap(el.getAttribute('data-bm')); }
+    else if (a === 'wx-tab') { switchWxTab(el.getAttribute('data-tab')); }
     else if (a === 'open-hourly') { openHourlyWeather(parseInt(el.dataset.off, 10)); }
     else if (a === 'kpi-today') { kpiToday(); }
     else if (a === 'kpi-overloads') { kpiOverloads(); }
