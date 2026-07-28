@@ -553,28 +553,6 @@ app.delete('/api/logs', async (req, res) => {
 });
 
 // ============================================================
-// ПРОКСИ Яндекс.Погоды — отдаём страницу со своего домена БЕЗ CSP,
-// чтобы её можно было показать в iframe (Яндекс блокирует frame-ancestors).
-// ============================================================
-app.get('/api/yandex-weather', async (req, res) => {
-  try {
-    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-    const r = await fetch('https://yandex.ru/pogoda/minsk', {
-      headers: { 'User-Agent': ua, 'Accept-Language': 'ru-RU,ru;q=0.9', Accept: 'text/html,application/xhtml+xml' },
-      redirect: 'follow'
-    });
-    let html = await r.text();
-    html = html.replace(/<meta[^>]+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, '');
-    if (/<head>/i.test(html)) html = html.replace(/<head>/i, '<head><base href="https://yandex.ru/">');
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (e) {
-    console.error('yandex proxy:', e.message);
-    res.status(502).type('text/html').send('<div style="font-family:sans-serif;padding:30px;color:#333">Не удалось загрузить Яндекс.Погоду. Откройте <a href="https://yandex.ru/pogoda/minsk" target="_blank">в новой вкладке</a>.</div>');
-  }
-});
-
-// ============================================================
 // ЗАПУСК
 // ============================================================
 initDB()
