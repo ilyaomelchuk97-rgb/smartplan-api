@@ -795,6 +795,127 @@
   .glass-flake:before,.glass-flake:after{content:"";position:absolute;inset:0;background:inherit;border-radius:inherit;box-shadow:inherit}
   .glass-flake:before{transform:rotate(60deg)}
   .glass-flake:after{transform:rotate(-60deg)}
+/* Модальное окно карты погоды */
+#wx-map-overlay{display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)}
+#wx-map-overlay.show{display:block}
+#wx-map-window{position:absolute;inset:20px;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);display:flex;flex-direction:column}
+#wx-map-header{display:flex;align-items:center;gap:12px;padding:12px 18px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;flex-shrink:0}
+#wx-map-header .wx-title{font-size:15px;font-weight:700;flex:1}
+#wx-map-close{background:none;border:none;color:#fff;font-size:26px;cursor:pointer;padding:0 4px;line-height:1;opacity:.9;transition:.15s}
+#wx-map-close:hover{opacity:1;transform:rotate(90deg)}
+#wx-map-body{flex:1;position:relative;overflow:hidden;background:#a9c7e0}
+#wx-map-canvas{position:absolute;inset:0;width:100%;height:100%}
+#wx-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px;background:#eef2f6;z-index:10}
+
+/* Переключатель подложки OSM / Google в шапке карты */
+#wx-basemap-sel{display:inline-flex;gap:4px;background:rgba(255,255,255,.18);border-radius:9px;padding:3px}
+.wx-bm-btn{border:none;background:transparent;color:#dbeafe;font-size:12px;font-weight:700;font-family:inherit;padding:5px 12px;border-radius:7px;cursor:pointer;transition:.15s}
+.wx-bm-btn:hover{background:rgba(255,255,255,.2)}
+.wx-bm-btn.on{background:#fff;color:#0f2740}
+/* Значения в метке ячейки */
+.wx-cl-row{display:inline-flex;align-items:center;gap:1px;font-size:9.5px;font-weight:800;line-height:1.1}
+
+/* Левая верхняя панель выбора слоёв */
+.wx-layers{position:absolute;top:12px;left:47px;z-index:600;width:200px;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.7);border-radius:13px;box-shadow:0 8px 28px rgba(15,39,64,.22);padding:11px 12px 12px;animation:wxSlideIn .3s ease}
+@keyframes wxSlideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+.wx-layers .wx-l-head{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#0f2740;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;padding-bottom:7px;border-bottom:1px solid #e2e8f0}
+.wx-l-head .wx-l-toggle{margin-left:auto;background:none;border:none;cursor:pointer;color:#64748b;font-size:14px;line-height:1;padding:2px 4px;border-radius:5px;transition:.15s}
+.wx-l-head .wx-l-toggle:hover{background:#eef2f6;color:#0f2740}
+.wx-layers.collapsed .wx-l-body{display:none}
+.wx-layers .wx-l-sub{font-size:9.5px;color:#64748b;margin:2px 0 8px;font-weight:600}
+.wx-layer-item{display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:9px;cursor:pointer;transition:.15s;user-select:none;margin-bottom:2px}
+.wx-layer-item:hover{background:#eef4fb}
+.wx-layer-item .wx-l-ic{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 26px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.wx-layer-item .wx-l-name{font-size:12.5px;font-weight:700;color:#1f2937;flex:1}
+.wx-layer-item .wx-l-box{width:18px;height:18px;border-radius:6px;border:2px solid #cbd5e1;background:#fff;flex:0 0 18px;display:flex;align-items:center;justify-content:center;transition:.15s}
+.wx-layer-item.on .wx-l-box{border-color:#2563eb}
+.wx-layer-item.on .wx-l-box::after{content:'';width:9px;height:5px;border:solid #fff;border-width:0 0 2.5px 2.5px;transform:rotate(-45deg) translate(1px,-1px)}
+.wx-layer-item.on .wx-l-box{background:#2563eb}
+.wx-layer-item.on{background:linear-gradient(90deg,rgba(37,99,235,.10),rgba(37,99,235,.02))}
+.wx-layer-item.on .wx-l-ic{filter:saturate(1.15)}
+@media(max-width:767px){.wx-layers{width:168px;top:8px;left:8px;padding:9px 10px}}
+
+/* Нижний таймлайн (48 часов: начало сегодня 00:00 — конец завтра 23:00) */
+.wx-timeline{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:600;width:min(720px,calc(100% - 28px));background:rgba(15,39,64,.93);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:14px;padding:9px 16px 11px;box-shadow:0 8px 28px rgba(0,0,0,.32);animation:wxSlideUp .3s ease}
+@keyframes wxSlideUp{from{opacity:0;transform:translateX(-50%) translateY(14px)}to{opacity:1;transform:translateX(-50%)}}
+.wx-tl-top{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.wx-tl-date{font-size:14px;font-weight:800;letter-spacing:.2px;white-space:nowrap}
+.wx-tl-sub{font-size:10.5px;color:#93c5fd;font-weight:600}
+.wx-tl-btns{margin-left:auto;display:flex;gap:5px}
+.wx-tl-btn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.10);color:#fff;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;line-height:1}
+.wx-tl-btn:hover{background:rgba(255,255,255,.22)}
+.wx-tl-btn.on{background:#2563eb;border-color:#60a5fa}
+.wx-tl-slider-wrap{position:relative;padding:2px 2px 0}
+.wx-tl-slider{-webkit-appearance:none;appearance:none;width:100%;height:7px;border-radius:5px;background:linear-gradient(90deg,rgba(56,189,248,.45),rgba(37,99,235,.55));outline:none;cursor:pointer}
+.wx-tl-slider::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid #2563eb;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+.wx-tl-slider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid #2563eb;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+.wx-tl-ticks{display:flex;justify-content:space-between;font-size:9px;color:#7da7d6;margin-top:4px;font-weight:600;padding:0 2px}
+.wx-tl-ticks span{white-space:nowrap}
+@media(max-width:767px){.wx-timeline{bottom:8px;padding:7px 12px 9px}.wx-tl-date{font-size:12px}.wx-tl-sub{display:none}}
+
+/* Метка-чип на выделенном регионе (Минск / Минский район / Минская область) */
+.wx-region-label{background:rgba(15,39,64,.82);color:#fff;border-radius:9px;padding:4px 9px;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;pointer-events:none;text-align:center;backdrop-filter:blur(3px);border:1px solid rgba(255,255,255,.25)}
+.wx-region-label .wx-rl-name{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;line-height:1.1;opacity:.9}
+.wx-region-label .wx-rl-vals{display:flex;flex-wrap:wrap;gap:3px 7px;justify-content:center;margin-top:3px}
+.wx-region-label .wx-rl-row{font-size:11.5px;font-weight:800;line-height:1.1;white-space:nowrap}
+.wx-region-label .wx-rl-empty{font-size:10px;font-style:italic;opacity:.7}
+/* Метка ячейки (район города / сельсовет) внутри Минска и Минского района */
+.wx-cell-label{background:rgba(15,39,64,.82);color:#fff;border-radius:6px;padding:2px 6px 3px;box-shadow:0 2px 8px rgba(0,0,0,.3);font-family:inherit;pointer-events:none;text-align:center;border:1px solid rgba(255,255,255,.18)}
+.wx-cell-label .wx-cl-name{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.2px;opacity:.82;line-height:1.05}
+.wx-cell-label .wx-cl-vals{display:flex;gap:4px;justify-content:center;font-size:9.5px;font-weight:800;line-height:1.1;margin-top:1px}
+/* Слой дождя (радар) — мягкие голубые закруглённые пятна, движется */
+.wx-radar-tile img{filter:blur(3px) saturate(1.4) brightness(1.05)}
+/* Область грозы — тёмно-синяя прозрачная с закруглением и пульсацией */
+.leaflet-pane.wxstorm path.wx-storm-circle{animation:wxStormPulse 2.4s ease-in-out infinite}
+@keyframes wxStormPulse{0%,100%{opacity:.85}50%{opacity:.45}}
+
+/* Анимация контура регионов с осадками (дождь/снег) */
+.leaflet-overlay-pane path.wx-region-rain,.leaflet-pane path.wx-region-rain{stroke-dasharray:7 5;animation:wxRegDash 1.2s linear infinite,wxRainGlow 1.5s ease-in-out infinite;filter:drop-shadow(0 0 5px rgba(56,189,248,.9))}
+.leaflet-overlay-pane path.wx-region-snow,.leaflet-pane path.wx-region-snow{stroke-dasharray:3 6;animation:wxRegDash 2s linear infinite,wxRainGlow 2s ease-in-out infinite;filter:drop-shadow(0 0 5px rgba(186,230,253,.9))}
+@keyframes wxRegDash{to{stroke-dashoffset:-24}}
+@keyframes wxRainGlow{0%,100%{filter:drop-shadow(0 0 3px rgba(56,189,248,.5))}50%{filter:drop-shadow(0 0 9px rgba(56,189,248,1))}}
+/* Окантовки Минск + Минский район */
+.leaflet-overlay-pane path.wx-region-outline,.leaflet-pane path.wx-region-outline{animation:wxOutlinePulse 3s ease-in-out infinite;filter:drop-shadow(0 0 4px rgba(14,165,233,.7))}
+@keyframes wxOutlinePulse{0%,100%{opacity:.7;filter:drop-shadow(0 0 3px rgba(14,165,233,.5))}50%{opacity:1;filter:drop-shadow(0 0 8px rgba(14,165,233,1))}}
+/* ПЛАВНЫЕ ПЕРЕХОДЫ ЦВЕТА ЯЧЕЕК */
+.leaflet-overlay-pane path.wx-cell,.leaflet-pane path.wx-cell{transition:fill .8s cubic-bezier(.4,0,.2,1),fill-opacity .8s ease,stroke .8s ease}
+/* ВОЛНА НА ПОЛЗУНКЕ */
+.wx-tl-slider-wrap{position:relative;padding:6px 4px 2px;overflow:visible}
+/* Ползунок: тонкая ЛИНИЯ (трек), поверх неё КРУЖОК. Волна проходит ТОЛЬКО через кружок
+   (расходящиеся кольца) и перемещается вместе с ним при перетаскивании. */
+.wx-tl-slider{-webkit-appearance:none;appearance:none;width:100%;height:24px;background:transparent;cursor:pointer;outline:none}
+.wx-tl-slider::-webkit-slider-runnable-track{height:4px;border-radius:4px;margin-top:10px;background:linear-gradient(90deg,rgba(56,189,248,.35),rgba(37,99,235,.6));box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.wx-tl-slider::-moz-range-track{height:4px;border-radius:4px;background:linear-gradient(90deg,rgba(56,189,248,.35),rgba(37,99,235,.6))}
+.wx-tl-slider::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-9px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#bfdbfe);border:3px solid #2563eb;cursor:grab;animation:wxThumbWave 1.8s ease-out infinite}
+.wx-tl-slider::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#bfdbfe);border:3px solid #2563eb;cursor:grab;box-shadow:0 2px 8px rgba(37,99,235,.45)}
+@keyframes wxThumbWave{0%{box-shadow:0 0 0 0 rgba(56,189,248,.55),0 0 0 0 rgba(37,99,235,.3),0 2px 8px rgba(37,99,235,.45)}55%{box-shadow:0 0 0 9px rgba(56,189,248,0),0 0 0 17px rgba(37,99,235,0),0 2px 8px rgba(37,99,235,.45)}100%{box-shadow:0 0 0 0 rgba(56,189,248,0),0 0 0 0 rgba(37,99,235,0),0 2px 8px rgba(37,99,235,.45)}}
+/* Сетка квадратов погоды + слой частиц */
+#wx-map-body{position:relative}
+#wx-map-canvas{position:relative;z-index:1}
+/* плавный переход цвета температуры в квадратах */
+.leaflet-overlay-pane path.wx-g-cell,.leaflet-pane path.wx-g-cell{transition:fill .8s cubic-bezier(.4,0,.2,1),fill-opacity .8s ease,stroke .8s ease}
+/* дождь / снег: анимированная пунктирная окантовка (как раньше) */
+.leaflet-overlay-pane path.wx-g-rain,.leaflet-pane path.wx-g-rain{stroke-dasharray:3 2;animation:wxGDash .7s linear infinite;filter:drop-shadow(0 0 3px rgba(56,189,248,.65))}
+.leaflet-overlay-pane path.wx-g-snow,.leaflet-pane path.wx-g-snow{stroke-dasharray:3 2;animation:wxGDash .9s linear infinite;filter:drop-shadow(0 0 3px rgba(203,213,225,.65))}
+@keyframes wxGDash{to{stroke-dashoffset:-10}}
+/* частицы поверх квадратов: дождь(капли)/снег(снежинки)/ветер(полосы) */
+#wx-particles{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:2}
+#wx-layers,#wx-timeline{z-index:20}
+.wx-cdrop{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none}
+.wx-cdrop .wx-drop{position:absolute;top:-25%;width:1.5px;height:9px;background:linear-gradient(rgba(186,230,253,0),rgba(56,189,248,1));border-radius:2px;box-shadow:0 0 2px rgba(56,189,248,.65);animation:wxCdrop linear infinite}
+@keyframes wxCdrop{0%{top:-25%;opacity:0}12%{opacity:1}88%{opacity:1}100%{top:110%;opacity:0}}
+.wx-cdrop .wx-flake{position:absolute;top:-15%;width:4px;height:4px;border-radius:50%;background:#e2e8f0;box-shadow:0 0 2px rgba(255,255,255,.9);animation:wxCflake linear infinite}
+@keyframes wxCflake{0%{top:-15%;opacity:0;transform:translateX(0)}12%{opacity:.95}88%{opacity:.9}100%{top:110%;opacity:0;transform:translateX(10px)}}
+.wx-p-wind{position:absolute;left:-12%;width:34px;height:2px;border-radius:2px;background:linear-gradient(90deg,rgba(167,139,250,0),rgba(167,139,250,.85),rgba(167,139,250,0));animation:wxPWind linear infinite}
+@keyframes wxPWind{0%{left:-12%;opacity:0}15%{opacity:.8}85%{opacity:.75}100%{left:112%;opacity:0}}
+.wxrain-pane svg g{filter:url(#wxRound);opacity:.5}
+
+/* Полупрозрачная кнопка карты погоды с белой окантовкой (в полосе погоды) */
+.wx-map-fab{margin-left:10px;display:inline-flex;align-items:center;gap:7px;padding:8px 14px;background:rgba(255,255,255,.16);border:1.5px solid rgba(255,255,255,.85);color:#fff;border-radius:30px;font-size:12.5px;font-weight:700;cursor:pointer;backdrop-filter:blur(6px);transition:.2s;font-family:inherit;white-space:nowrap;position:relative;z-index:2;text-shadow:0 1px 4px rgba(0,0,0,.3);box-shadow:0 4px 14px rgba(0,0,0,.18)}
+.wx-map-fab:hover{background:rgba(255,255,255,.28);transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.28)}
+.wx-map-fab:active{transform:translateY(0)}
+@media(max-width:767px){.wx-map-fab{padding:6px 11px;font-size:11px}}
+@media(max-width:767px){#wx-map-window{inset:8px}}
 </style>
 </head>
 <body>
@@ -938,5 +1059,5 @@
 </div>
 
 <script src="app.js"></script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a202a2548f5ef377',t:'MTc4NDg5MzA1OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
