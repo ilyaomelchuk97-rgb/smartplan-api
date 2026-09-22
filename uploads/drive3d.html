@@ -27,6 +27,11 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0b1220;font
 <body>
 <div id="map"></div>
 <div id="hud"><div class="lbl">Скорость</div><div><span id="speedo">0</span> <span id="unit">км/ч</span><span id="boost"></span></div><div id="gear">D</div><button id="driftBtn" style="margin-top:8px;padding:6px 14px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;pointer-events:auto">💨 ДРИФТ: ВЫКЛ</button></div>
+<div id="topspeed" style="position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:20;background:rgba(15,23,42,.82);color:#fff;padding:8px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.4);backdrop-filter:blur(8px);display:flex;align-items:center;gap:10px;font-size:12px;font-family:inherit;pointer-events:auto">
+  <span style="color:#94a3b8;font-weight:700;letter-spacing:.3px">МАКС. СКОРОСТЬ</span>
+  <input id="topslider" type="range" min="120" max="2000" step="10" value="220" style="width:190px;accent-color:#38bdf8;cursor:pointer">
+  <span style="min-width:78px"><b id="topval" style="color:#38bdf8;font-size:14px">220</b> км/ч</span>
+</div>
 <div id="help"><kbd>W</kbd> газ · <kbd>S</kbd> тормоз/зад<br><kbd>A</kbd> <kbd>D</kbd> руль · <kbd>Shift</kbd> нитро<br><kbd>Space</kbd> ручник · <kbd>C</kbd> салон · кнопка 💨 ДРИФТ<br>мышь — камера · колесо — зум<br><b>подстройка модели:</b> <kbd>,</kbd><kbd>.</kbd> нос · <kbd>[</kbd><kbd>]</kbd> высота · <kbd>-</kbd><kbd>=</kbd> размер</div>
 <div id="dbg">кадр 0</div>
 <div id="note"></div>
@@ -61,9 +66,14 @@ map.keyboard.disable(); map.dragPan.disable(); map.dragRotate.disable(); map.dou
 
 function setNote(t, ok) { var n = document.getElementById("note"); if (n) { n.textContent = t; n.style.background = (ok === false) ? "rgba(220,38,38,.92)" : "rgba(22,163,74,.92)"; n.style.display = t ? "block" : "none"; } }
 
-var car = { lat: START[0], lng: START[1], heading: 0, speed: 0, steer: 0 };
+var car = { lat: START[0], lng: START[1], heading: 0, velAngle: 0, speed: 0, steer: 0 };
 var viewMode = "chase", orbitYaw = 0, orbitPitch = 62, camZoom = 17, camBearing = 0, wheelSpin = 0, modelLoaded = false;
 var driftMode = false;
+var MAX_KMH = 220;
+(function () {
+  var ts = document.getElementById("topslider"), tv = document.getElementById("topval");
+  if (ts) ts.addEventListener("input", function () { MAX_KMH = parseInt(ts.value, 10) || 220; if (tv) tv.textContent = MAX_KMH; });
+})();
 
 var carLayer = {
   id: "car3d", type: "custom", renderingMode: "3d",
@@ -100,58 +110,6 @@ var carLayer = {
       setNote("Модель готова ✓ — жми W"); setTimeout(function () { setNote(""); }, 3000);
     }, undefined, function (err) { setNote("Ошибка модели: " + (err && err.message || err), false); console.error(err); });
   },
-  spawnSmoke: function () {
-    if (!driftMode || Math.abs(car.speed) < 2 || !this.wrap || !this.scene) return;
-    var intensity = Math.min(1, Math.abs(car.speed) / 20);
-    if (Math.random() > intensity * 0.8) return;
-    // 4 позиции колёс (модельное пространство)
-    var positions = [[0.28,0.21],[0.28,-0.21],[-0.28,0.21],[-0.28,-0.21]];
-    var pi = Math.floor(Math.random() * 4);
-    var p = positions[pi];
-    var tex = this.makeSmokeTexture();
-    var mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.5, depthWrite: false });
-    var sp = new THREE.Sprite(mat);
-    var sc = 0.5 + Math.random() * 0.5;
-    sp.scale.set(sc, sc, 1);
-    sp.position.set(p[0] + (Math.random()-0.5)*0.1, -0.09, p[1] + (Math.random()-0.5)*0.1);
-    sp.userData = { life: 0, maxLife: 1.0 + Math.random() * 0.5, baseScale: sc, vy: 0.3 + Math.random() * 0.3, vx: (Math.random()-0.5)*0.2 };
-    this.orient.add(sp);
-    this.smokeParticles.push(sp);
-    if (this.smokeParticles.length > 80) { var old = this.smokeParticles.shift(); if (old.parent) old.parent.remove(old); }
-  },
-  makeSmokeTexture: (function(){
-    var cached = null;
-    return function(){
-      if (cached) return cached;
-      var cv = document.createElement("canvas"); cv.width = 64; cv.height = 64;
-      var cx = cv.getContext("2d");
-      var grd = cx.createRadialGradient(32,32,0,32,32,32);
-      grd.addColorStop(0,"rgba(200,200,210,0.9)");
-      grd.addColorStop(0.4,"rgba(180,180,195,0.5)");
-      grd.addColorStop(1,"rgba(160,160,180,0)");
-      cx.fillStyle = grd; cx.fillRect(0,0,64,64);
-      cached = new THREE.CanvasTexture(cv);
-      return cached;
-    };
-  })(),
-  updateSmoke: function (dt) {
-    if (!this.smokeParticles || !this.smokeParticles.length) return;
-    for (var i = this.smokeParticles.length - 1; i >= 0; i--) {
-      var sp = this.smokeParticles[i];
-      sp.userData.life += dt;
-      var t = sp.userData.life / sp.userData.maxLife;
-      if (t >= 1) {
-        if (sp.parent) sp.parent.remove(sp);
-        this.smokeParticles.splice(i, 1);
-      } else {
-        var grow = sp.userData.baseScale * (1 + t * 2.5);
-        sp.scale.set(grow, grow, 1);
-        sp.position.y += sp.userData.vy * dt;
-        sp.position.x += sp.userData.vx * dt;
-        sp.material.opacity = 0.5 * (1 - t);
-      }
-    }
-  },
   render: function (gl, matrix) {
     this._fc = (this._fc || 0) + 1;
     var mc = maplibregl.MercatorCoordinate.fromLngLat([car.lat ? 0 : 0, 0]); // placeholder
@@ -165,8 +123,6 @@ var carLayer = {
     if (this.orient) { this.orient.rotation.set(MODEL_ROT_X, MODEL_ROT_Y, MODEL_ROT_Z); this.orient.scale.setScalar(MODEL_SCALE); this.orient.position.z = MODEL_Z; }
     if (this.wheels) for (var _wi = 0; _wi < this.wheels.length; _wi++) this.wheels[_wi].rotation.z = wheelSpin;
     if (this.scene) this.scene.traverse(function (o) { o.frustumCulled = false; });
-    this.spawnSmoke();
-    this.updateSmoke(0.016);
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
     var dbg = document.getElementById("dbg");
@@ -231,16 +187,22 @@ function step(dt) {
   if (keys["KeyD"] || keys["ArrowRight"]) steerIn = 1;
   var hand = !!keys["Space"], nitro = !!(keys["ShiftLeft"] || keys["ShiftRight"]);
 
-  var power = nitro ? NITRO_ENGINE : ENGINE, top = nitro ? NITRO_TOP : TOP;
+  // Макс. скорость — ползунком сверху (до 2000 км/ч). nitro = макс. скорость x2.
+  var top = (nitro ? MAX_KMH * 2 : MAX_KMH) / 3.6; // nitro всегда удваивает потолок скорости
+  var basePower = nitro ? NITRO_ENGINE : ENGINE;
+  var power = Math.max(basePower, DRAG * top * top * 1.1 + ROLL); // тяги хватает достичь top
   if (thr > 0) car.speed += power * dt;                       // газ
   else if (thr < 0) {
     if (car.speed > 0.4) car.speed -= BRAKE * dt;             // тормоз
     else car.speed -= REV_ENGINE * dt;                        // задний ход
   }
-  // сопротивление качения + аэродинамика
-  car.speed -= ROLL * Math.sign(car.speed) * dt;
-  car.speed -= DRAG * car.speed * Math.abs(car.speed) * dt;
-  if (hand) car.speed -= BRAKE * 1.4 * Math.sign(car.speed) * dt; // ручник
+  // Занос считаем ЗАРАНЕЕ: в режиме дрифта с пробелом машина скорость держит (не замедляется)
+  var drifting = driftMode && hand && Math.abs(car.speed) > 3;
+  // сопротивление качения + аэродинамика — только ВНЕ заноса с пробелом
+  if (!drifting) {
+    car.speed -= ROLL * Math.sign(car.speed) * dt;
+    car.speed -= DRAG * car.speed * Math.abs(car.speed) * dt;
+  }
   car.speed = Math.max(-REV, Math.min(top, car.speed));
   if (Math.abs(car.speed) < 0.02) car.speed = 0;
 
@@ -250,24 +212,40 @@ function step(dt) {
   // угол поворота передних колёс δ: ~29° на малой скорости, меньше на высокой (недостаточная поворачиваемость)
   var maxDelta = 0.30 * (1 - 0.55 * Math.min(1, Math.abs(car.speed) / top)); // ~17° → радиус ~10м как у реального авто
   var delta = car.steer * maxDelta;
-  if (hand) delta *= 1.5; // ручник → острее (дрифт)
-  if (driftMode) { delta *= 2.2; car.speed *= 0.998; } // дрифт: острый занос + лёгкая потеря скорости
-  // велосипедная модель: скорость рысканья ω = (v / L) · tan(δ) — нос ведёт по дуге
-  car.heading += (car.speed / WHEELBASE) * Math.tan(delta) * dt;
+  // ЗАНÓС: Space в режиме дрифта → раздельные направления носа и движения
+  // (drifting вычислен выше; обычный ручник-тормоз — только вне дрифта)
+  if (!drifting && hand) {
+    car.speed -= BRAKE * 1.4 * Math.sign(car.speed) * dt;
+  }
 
-  // движение
+  // СКОРОСТЬ ПОВОРОТА НОСА: при дрифте — медленнее (машина "не слушается" руля)
+  var yawRate = (car.speed / WHEELBASE) * Math.tan(delta);
+  if (drifting) yawRate *= 0.35; // нос поворачивается в 3 раза медленнее
+  car.heading += yawRate * dt;
+
+  // ВОССТАНОВЛЕНИЕ СЦЕПЛЕНИЯ: velAngle (направление движения) → heading
+  // Норма: velAngle быстро = heading (сцепление хорошее)
+  // Дрифт: velAngle медленно → heading (зад скользит, машина едет боком)
+  var grip = drifting ? 0.6 : 8.0;
+  var slipDiff = car.heading - car.velAngle;
+  while (slipDiff > Math.PI) slipDiff -= 2 * Math.PI;
+  while (slipDiff < -Math.PI) slipDiff += 2 * Math.PI;
+  car.velAngle += slipDiff * Math.min(1, grip * dt);
+  // в режиме дрифта машина скорость не теряет (пробел не замедляет)
+
+  // ДВИЖЕНИЕ: по velAngle (направление скольжения), НЕ по heading!
   var dm = car.speed * dt;
-  var newLat = car.lat + dm * Math.cos(car.heading) / 111320;
-  var newLng = car.lng + dm * Math.sin(car.heading) / (111320 * Math.cos(car.lat * Math.PI / 180));
+  var newLat = car.lat + dm * Math.cos(car.velAngle) / 111320;
+  var newLng = car.lng + dm * Math.sin(car.velAngle) / (111320 * Math.cos(car.lat * Math.PI / 180));
   // коллизия со зданиями
   var blocked = false;
   try {
     if (map.getLayer("3d-buildings")) {
-      var fLat = newLat + Math.cos(car.heading) * 2.4 / 111320;
-      var fLng = newLng + Math.sin(car.heading) * 2.4 / (111320 * Math.cos(newLat * Math.PI / 180));
-      var c = map.queryRenderedFeatures(map.project([newLng, newLat]), { layers: ["3d-buildings"] });
-      var f = map.queryRenderedFeatures(map.project([fLng, fLat]), { layers: ["3d-buildings"] });
-      var cu = map.queryRenderedFeatures(map.project([car.lng, car.lat]), { layers: ["3d-buildings"] });
+      var fLat = newLat + Math.cos(car.heading) * 1.8 / 111320;
+      var fLng = newLng + Math.sin(car.heading) * 1.8 / (111320 * Math.cos(newLat * Math.PI / 180));
+      var c = map.queryRenderedFeatures(map.project([newLng, newLat]), { layers: ["3d-buildings"] }).filter(function(f){ var h = f.properties && (f.properties.render_height || f.properties.height || 5); return h > 8; });
+      var f = map.queryRenderedFeatures(map.project([fLng, fLat]), { layers: ["3d-buildings"] }).filter(function(f){ var h = f.properties && (f.properties.render_height || f.properties.height || 5); return h > 8; });
+      var cu = map.queryRenderedFeatures(map.project([car.lng, car.lat]), { layers: ["3d-buildings"] }).filter(function(f){ var h = f.properties && (f.properties.render_height || f.properties.height || 5); return h > 8; });
       if (((c && c.length) || (f && f.length)) && !(cu && cu.length)) blocked = true;
     }
   } catch (e) {}
@@ -301,7 +279,47 @@ function loop(now) {
   if (gearEl) gearEl.textContent = car.speed < -0.1 ? "R" : (car.speed < 0.5 ? "N" : "D");
   requestAnimationFrame(loop);
 }
+var _smokeTm = 0;
+function spawnCssSmoke(now) {
+  var slipA = Math.abs(car.heading - car.velAngle);
+  while (slipA > Math.PI) slipA -= 2 * Math.PI;
+  slipA = Math.abs(slipA);
+  var drifting = driftMode && !!keys["Space"] && Math.abs(car.speed) > 4 && slipA > 0.15;
+  if (!drifting || now - _smokeTm < 50) return;
+  _smokeTm = now;
+  // Две позиции: за левым и правым задним колесом
+  var cosH = Math.cos(car.heading), sinH = Math.sin(car.heading);
+  var cosL = Math.cos(car.lat * Math.PI / 180);
+  var rearOff = 2.2, sideOff = 1.0;
+  var rLat = car.lat - cosH * rearOff / 111320;
+  var rLng = car.lng - sinH * rearOff / (111320 * cosL);
+  var lLat = rLat + sinH * sideOff / 111320;
+  var lLng = rLng - cosH * sideOff / (111320 * cosL);
+  var rLat2 = rLat - sinH * sideOff / 111320;
+  var rLng2 = rLng + cosH * sideOff / (111320 * cosL);
+  var pL = map.project([lLng, lLat]);
+  var pR = map.project([rLng2, rLat2]);
+  [pL, pR].forEach(function (pt, idx) {
+    var sz = 26 + Math.random() * 14;
+    var el = document.createElement("div");
+    el.style.cssText = "position:absolute;left:" + (pt.x - sz/2) + "px;top:" + (pt.y - sz/2) + "px;width:" + sz + "px;height:" + sz + "px;border-radius:50%;background:radial-gradient(circle,rgba(200,205,215,.7),rgba(160,170,185,.25) 50%,transparent 72%);pointer-events:none;z-index:50;opacity:.75;transition:transform .85s ease-out,opacity .85s ease-out;";
+    document.getElementById("map").appendChild(el);
+    var ox = (idx === 0 ? -1 : 1) * (15 + Math.random() * 20);
+    var oy = -15 - Math.random() * 20;
+    requestAnimationFrame(function () {
+      el.style.transform = "translate(" + ox + "px," + oy + "px) scale(3)";
+      el.style.opacity = "0";
+    });
+    setTimeout(function () { el.remove(); }, 950);
+  });
+}
+
+var _origLoop = loop;
+loop = function(now) {
+  _origLoop(now);
+  spawnCssSmoke(now);
+};
 requestAnimationFrame(loop);
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a203234a8b564c6b',t:'MTc4NDg5ODM0MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>

@@ -45,7 +45,14 @@ window.SP_WORK = (function () {
   }
   function init() {
     var db = load();
-    if (!db || db.schema !== SCHEMA) { db = { schema: SCHEMA, areas: {} }; memoryDB = db; }
+    if (!db) { db = { schema: SCHEMA, areas: {} }; memoryDB = db; }
+    else if (db.schema !== SCHEMA) {
+      // обновление кода не теряет данные: снимок в smartplan_prev_, перенос в новую схему
+      try { localStorage.setItem('smartplan_prev_' + KEY, JSON.stringify(db)); } catch (e) {}
+      db.schema = SCHEMA;
+      if (!db.areas) db.areas = {};
+      memoryDB = db;
+    }
     return memoryDB;
   }
   function reloadFromCloud(cloudData) {
@@ -78,11 +85,49 @@ window.SP_WORK = (function () {
     return Promise.resolve(db);
   }
 
-  function getAreas() { return AREAS.slice(); }
+  function getAreas() {
+    // Участки берутся из справочника (areas_db.js), fallback — встроенный список
+    try {
+      if (window.SP_AREAS && typeof window.SP_AREAS.getAreas === 'function') {
+        var a = window.SP_AREAS.getAreas();
+        if (a && a.length) return a;
+      }
+    } catch (e) {}
+    return AREAS.slice();
+  }
+  // Создать участок в каталоге работ (пустой список работ)
+  function ensureArea(area) {
+    var db = init();
+    if (!db.areas[area]) { db.areas[area] = []; save(db); }
+    return db.areas[area];
+  }
+  // Переименовать участок: переносятся все виды работ
+  function renameArea(oldName, newName) {
+    var db = init();
+    if (db.areas[oldName]) {
+      db.areas[newName] = db.areas[oldName];
+      delete db.areas[oldName];
+      save(db);
+    }
+    // Сервер: works.area обновляется внутри PUT /api/areas/:id (вызывает areas_db)
+    return db.areas[newName] || [];
+  }
+  // Удалить участок вместе с его видами работ
+  function deleteArea(name) {
+    var db = init();
+    var arr = db.areas[name] || [];
+    delete db.areas[name];
+    save(db);
+    // Сервер: работы участка удаляются внутри DELETE /api/areas/:id
+    return arr;
+  }
   function getWorks(area) {
     var db = init();
-    var arr = db.areas[area] || db.areas['УБиРОГС'] || DEFAULTS;
-    return arr.map(function (w) { return Object.assign({}, w); });
+    var arr = db.areas[area];
+    if (arr) return arr.map(function (w) { return Object.assign({}, w); });
+    // Фолбэк на встроенный каталог — только для дефолтного участка
+    if (!area || area === 'УБиРОГС') return (db.areas['УБиРОГС'] || DEFAULTS).map(function (w) { return Object.assign({}, w); });
+    return []; // новый участок — работ пока нет
   }
   function getWork(area, id) {
     var arr = getWorks(area);
@@ -117,7 +162,7 @@ window.SP_WORK = (function () {
     db.areas[area].push(w); save(db);
     // Отправка на сервер
     if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
-      fetch(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area), {
+      (window.SP_NET ? SP_NET.send : fetch)(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(w)
@@ -142,7 +187,7 @@ window.SP_WORK = (function () {
       save(db);
       // Отправка на сервер
       if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
-        fetch(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area) + '/' + id, {
+        (window.SP_NET ? SP_NET.send : fetch)(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area) + '/' + id, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(arr[i])
@@ -158,7 +203,7 @@ window.SP_WORK = (function () {
     save(db);
     // Отправка на сервер
     if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
-      fetch(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area) + '/' + id, {
+      (window.SP_NET ? SP_NET.send : fetch)(window.SP_CONFIG.serverUrl + '/api/works/' + encodeURIComponent(area) + '/' + id, {
         method: 'DELETE'
       }).catch(function() {});
     }
@@ -167,6 +212,7 @@ window.SP_WORK = (function () {
   return {
     ensureSeed: ensureSeed, getAreas: getAreas, getWorks: getWorks, getWork: getWork,
     getWorkById: getWorkById, addWork: addWork, updateWork: updateWork, deleteWork: deleteWork,
+    ensureArea: ensureArea, renameArea: renameArea, deleteArea: deleteArea,
     DEFAULTS: DEFAULTS, reloadFromCloud: reloadFromCloud, SCHEMA: SCHEMA
   };
 })();

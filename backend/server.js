@@ -33,6 +33,54 @@ app.get('/api/health', (req, res) => {
 });
 
 // ============================================================
+// РЕЗЕРВНЫЕ КОПИИ (автобэкап раз в сутки; последний — на скачивание)
+// ============================================================
+async function makeBackup() {
+  const [areas, objects, works, users, tasks, workers] = await Promise.all([
+    query('SELECT * FROM areas'),
+    query('SELECT * FROM objects'),
+    query('SELECT * FROM works'),
+    query('SELECT * FROM users'),
+    query("SELECT * FROM tasks WHERE status != 'deleted' AND s != 'deleted'"),
+    query('SELECT * FROM workers')
+  ]);
+  const data = JSON.stringify({
+    version: 1, ts: Date.now(),
+    areas: areas.rows, objects: objects.rows, works: works.rows,
+    users: users.rows, tasks: tasks.rows, workers: workers.rows
+  });
+  const ts = Date.now();
+  await query('INSERT INTO backups (ts, data) VALUES ($1, $2) ON CONFLICT (ts) DO NOTHING', [ts, data]);
+  // храним последние 7 копий
+  await query('DELETE FROM backups WHERE ts NOT IN (SELECT ts FROM backups ORDER BY ts DESC LIMIT 7)');
+  return { ts, size: data.length };
+}
+// автобэкап: при обращении к health — если последней копии больше суток
+app.get('/api/backup', async (req, res) => {
+  try {
+    const last = await query('SELECT ts FROM backups ORDER BY ts DESC LIMIT 1');
+    const lastTs = last.rows.length ? Number(last.rows[0].ts) : 0;
+    if (Date.now() - lastTs > 24 * 3600 * 1000) {
+      await makeBackup(); // раз в сутки — свежая копия
+    }
+    const r = await query('SELECT ts, data FROM backups ORDER BY ts DESC LIMIT 1');
+    if (!r.rows.length) return res.json({ ok: false, reason: 'нет копий' });
+    res.json({ ok: true, ts: Number(r.rows[0].ts), data: JSON.parse(r.rows[0].data) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// создать копию прямо сейчас
+app.post('/api/backup', async (req, res) => {
+  try {
+    const b = await makeBackup();
+    res.json({ ok: true, ts: b.ts });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
 // ПОЛЬЗОВАТЕЛИ
 // ============================================================
 
@@ -50,6 +98,7 @@ app.get('/api/users', async (req, res) => {
       area: u.area,
       color: u.color,
       active: u.active,
+      prof: u.prof || '',
       seed: true,
     }));
     res.json({ schema: 3, users });
@@ -77,7 +126,7 @@ app.get('/api/users/:id', async (req, res) => {
 // Создать пользователя
 app.post('/api/users', async (req, res) => {
   try {
-    const { id, login, password, plain_password, full_name, role, area, color, active } = req.body;
+    const { id, login, password, plain_password, full_name, role, area, color, active, prof } = req.body;
     // Проверка уникальности логина
     const exists = await query('SELECT id FROM users WHERE login = $1', [login]);
     if (exists.rows.length) return res.status(409).json({ error: 'Логин уже занят' });
@@ -85,9 +134,9 @@ app.post('/api/users', async (req, res) => {
     const hashed = bcrypt.hashSync(password || 'admin123', 10);
     const newId = id || 'u_' + Date.now().toString(36);
     await query(
-      `INSERT INTO users (id, login, password, plain_password, full_name, role, area, color, active, created)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [newId, login, hashed, plain_password || password || 'admin123', full_name, role || 'master', area || '', color || '#2563eb', active !== false, Date.now()]
+      `INSERT INTO users (id, login, password, plain_password, full_name, role, area, color, active, prof, created)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [newId, login, hashed, plain_password || password || 'admin123', full_name, role || 'master', area || '', color || '#2563eb', active !== false, prof || '', Date.now()]
     );
     res.json({ id: newId, login, full_name, role, area, color, active });
   } catch (err) {
@@ -113,8 +162,8 @@ app.put('/api/users/:id', async (req, res) => {
     const plain = d.password || cur.plain_password;
 
     await query(
-      `UPDATE users SET login=$1, password=$2, plain_password=$3, full_name=$4, role=$5, area=$6, color=$7, active=$8
-       WHERE id=$9`,
+      `UPDATE users SET login=$1, password=$2, plain_password=$3, full_name=$4, role=$5, area=$6, color=$7, active=$8, prof=$9
+       WHERE id=$10`,
       [
         d.login || cur.login, hashed, plain,
         d.full_name !== undefined ? d.full_name : cur.full_name,
@@ -122,6 +171,7 @@ app.put('/api/users/:id', async (req, res) => {
         d.area !== undefined ? d.area : cur.area,
         d.color !== undefined ? d.color : cur.color,
         d.active !== undefined ? d.active : cur.active,
+        d.prof !== undefined ? d.prof : (cur.prof || ''),
         req.params.id
       ]
     );
@@ -277,27 +327,157 @@ app.delete('/api/works/:area/:id', async (req, res) => {
 app.get('/api/objects', async (req, res) => {
   try {
     const result = await query('SELECT * FROM objects ORDER BY addr');
-    const objects = result.rows.map(o => ({
-      id: o.id, addr: o.addr, type: o.type, lat: parseFloat(o.lat), lng: parseFloat(o.lng),
-      zu: o.zu, area_obj: parseFloat(o.area_obj), length_km: parseFloat(o.length_km), area_ha: parseFloat(o.area_ha),
-    }));
+    const objects = result.rows
+      // защита от мусорных пустых строк (пустой addr+num без полигона и координат)
+      .filter(o => (o.addr && String(o.addr).trim()) || (o.num && String(o.num).trim()) || o.poly || (o.lat != null && o.lng != null))
+      .map(o => {
+        let poly = null;
+        try { poly = o.poly ? JSON.parse(o.poly) : null; } catch (e) { poly = null; }
+        return {
+          id: o.id, addr: o.addr, type: o.type, num: o.num || '',
+          lat: o.lat != null ? parseFloat(o.lat) : null,
+          lng: o.lng != null ? parseFloat(o.lng) : null,
+          zu: o.zu, area_obj: parseFloat(o.area_obj), length_km: parseFloat(o.length_km), area_ha: parseFloat(o.area_ha),
+          poly: poly, descr: o.descr || '', color: o.color || '',
+          respId: o.resp_id || '', respName: o.resp_name || ''
+        };
+      });
     res.json({ objects });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// Полигон области в SQL-формат: массив [[lat,lng],...] → JSON-строка
+function polyToSql(p) {
+  if (!p) return null;
+  if (typeof p === 'string') return p;
+  try { return JSON.stringify(p); } catch (e) { return null; }
+}
+
 app.post('/api/objects', async (req, res) => {
   try {
+    // Поддерживаем и один объект, и массив (полная синхронизация справочника)
+    const items = Array.isArray(req.body)
+      ? req.body.filter(d => d && d.id)
+      : [Object.assign({}, req.body, { id: req.body.id || 'o_' + Date.now().toString(36) })];
+    for (const d of items) {
+      await query(
+        `INSERT INTO objects (id, addr, type, num, lat, lng, zu, area_obj, length_km, area_ha, poly, descr, color, resp_id, resp_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         ON CONFLICT (id) DO UPDATE SET addr=EXCLUDED.addr, type=EXCLUDED.type, num=EXCLUDED.num,
+           lat=EXCLUDED.lat, lng=EXCLUDED.lng, zu=EXCLUDED.zu, area_obj=EXCLUDED.area_obj,
+           length_km=EXCLUDED.length_km, area_ha=EXCLUDED.area_ha, poly=EXCLUDED.poly,
+           descr=EXCLUDED.descr, color=EXCLUDED.color, resp_id=EXCLUDED.resp_id, resp_name=EXCLUDED.resp_name`,
+        [d.id, d.addr || '', d.type || 'Объект', d.num != null ? String(d.num) : '', d.lat || null, d.lng || null,
+         d.zu || 0, d.area_obj || 0, d.length_km || 0, d.area_ha || 0,
+         polyToSql(d.poly), d.descr || '', d.color || '', d.respId || '', d.respName || '']
+      );
+    }
+    res.json({ saved: items.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Изменение объекта (справочник ГРП/ШРП)
+app.put('/api/objects/:id', async (req, res) => {
+  try {
     const d = req.body;
-    const id = d.id || 'o_' + Date.now().toString(36);
+    const exists = await query('SELECT id FROM objects WHERE id=$1', [req.params.id]);
+    if (!exists.rows.length) {
+      await query(
+        `INSERT INTO objects (id, addr, type, num, lat, lng, zu, area_obj, length_km, area_ha, poly, descr, color, resp_id, resp_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [req.params.id, d.addr || '', d.type || 'Объект', d.num != null ? String(d.num) : '', d.lat || null, d.lng || null,
+         d.zu || 0, d.area_obj || 0, d.length_km || 0, d.area_ha || 0,
+         polyToSql(d.poly), d.descr || '', d.color || '', d.respId || '', d.respName || '']
+      );
+    } else {
+      await query(
+        `UPDATE objects SET addr=$1, type=$2, num=$3, lat=$4, lng=$5, zu=$6, area_obj=$7, length_km=$8, area_ha=$9, poly=$10, descr=$11, color=$12, resp_id=$13, resp_name=$14
+         WHERE id=$15`,
+        [d.addr || '', d.type || 'Объект', d.num != null ? String(d.num) : '', d.lat || null, d.lng || null,
+         d.zu || 0, d.area_obj || 0, d.length_km || 0, d.area_ha || 0,
+         polyToSql(d.poly), d.descr || '', d.color || '', d.respId || '', d.respName || '', req.params.id]
+      );
+    }
+    res.json({ id: req.params.id, updated: true });
+  } catch (err) {
+    console.error('PUT /api/objects/:id:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Удаление объекта
+app.delete('/api/objects/:id', async (req, res) => {
+  try {
+    await query('DELETE FROM objects WHERE id=$1', [req.params.id]);
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// УЧАСТКИ (справочник)
+// ============================================================
+
+app.get('/api/areas', async (req, res) => {
+  try {
+    const result = await query('SELECT id, name FROM areas ORDER BY name');
+    res.json({ areas: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/areas', async (req, res) => {
+  try {
+    const d = req.body;
+    const id = d.id || 'a_' + Date.now().toString(36);
+    const name = String(d.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Название участка обязательно' });
     await query(
-      `INSERT INTO objects (id, addr, type, lat, lng, zu, area_obj, length_km, area_ha)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (id) DO UPDATE SET addr=EXCLUDED.addr, type=EXCLUDED.type`,
-      [id, d.addr, d.type || 'Объект', d.lat || null, d.lng || null, d.zu || 0, d.area_obj || 0, d.length_km || 0, d.area_ha || 0]
+      `INSERT INTO areas (id, name, created) VALUES ($1,$2,$3)
+       ON CONFLICT (name) DO NOTHING`,
+      [id, name, Date.now()]
     );
-    res.json({ id, ...d });
+    res.json({ id, name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Переименование участка: переносим работы и пользователей
+app.put('/api/areas/:id', async (req, res) => {
+  try {
+    const d = req.body;
+    const newName = String(d.name || '').trim();
+    const oldName = String(d.oldName || '').trim();
+    if (!newName) return res.status(400).json({ error: 'Название участка обязательно' });
+    const dup = await query('SELECT id FROM areas WHERE name=$1 AND id<>$2', [newName, req.params.id]);
+    if (dup.rows.length) return res.status(409).json({ error: 'Участок с таким названием уже существует' });
+    const upd = await query('UPDATE areas SET name=$1 WHERE id=$2 RETURNING name', [newName, req.params.id]);
+    if (upd.rows.length && oldName && oldName !== newName) {
+      await query('UPDATE works SET area=$1 WHERE area=$2', [newName, oldName]);
+      await query('UPDATE users SET area=$1 WHERE area=$2', [newName, oldName]);
+    }
+    res.json({ id: req.params.id, name: newName, renamed: upd.rows.length > 0 });
+  } catch (err) {
+    console.error('PUT /api/areas/:id:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Удаление участка (вместе с его работами; пользователи не удаляются)
+app.delete('/api/areas/:id', async (req, res) => {
+  try {
+    const found = await query('SELECT name FROM areas WHERE id=$1', [req.params.id]);
+    const name = found.rows.length ? found.rows[0].name : null;
+    if (name) await query('DELETE FROM works WHERE area=$1', [name]);
+    await query('DELETE FROM areas WHERE id=$1', [req.params.id]);
+    res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -306,6 +486,39 @@ app.post('/api/objects', async (req, res) => {
 // ============================================================
 // ЗАДАНИЯ
 // ============================================================
+
+// === РАБОТНИКИ (страница «Работники»: время 8/12 ч, график 5/2-2/2, бригады, отсутствия) ===
+app.get('/api/workers', async (req, res) => {
+  try {
+    const result = await query('SELECT uid, data FROM workers');
+    const workers = {};
+    result.rows.forEach(r => {
+      try { workers[r.uid] = JSON.parse(r.data) || {}; } catch (e) { workers[r.uid] = {}; }
+    });
+    res.json({ workers });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Приём настроек работников (bulk upsert): { schema, workers: { uid: {...} } }
+app.post('/api/workers', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const map = body.workers || {};
+    for (const uid of Object.keys(map)) {
+      const data = JSON.stringify(map[uid]);
+      await query(
+        `INSERT INTO workers (uid, data) VALUES ($1, $2)
+         ON CONFLICT (uid) DO UPDATE SET data = EXCLUDED.data`,
+        [uid, data]
+      );
+    }
+    res.json({ ok: true, count: Object.keys(map).length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/tasks', async (req, res) => {
   try {
@@ -318,6 +531,13 @@ app.get('/api/tasks', async (req, res) => {
       min_temp: parseFloat(t.min_temp) || -50, equipment: t.equipment,
       travelMin: t.travel_min, travelKm: t.travel_km ? parseFloat(t.travel_km) : null,
       travelKmText: t.travel_km_text, travelText: t.travel_text,
+      lat: t.lat != null ? parseFloat(t.lat) : null,
+      lng: t.lng != null ? parseFloat(t.lng) : null,
+      coord_src: t.coord_src || null,
+      volumes: t.volumes ? JSON.parse(t.volumes) : null,
+      slesari: t.slesari ? JSON.parse(t.slesari) : null,
+      brigade: t.brigade || false,
+      updated_at: parseInt(t.updated_at, 10) || 0 // версия задачи — защита от конфликтов
     }));
     res.json({ tasks });
   } catch (err) {
@@ -329,19 +549,28 @@ app.post('/api/tasks', async (req, res) => {
   try {
     const t = req.body;
     const id = t.id || 't_' + Date.now();
+    const updAt = parseInt(t.updated_at, 10) || Date.now(); // версия задачи (защита от конфликтов)
     await query(
-      `INSERT INTO tasks (id, addr, o, w, works, m, d, dl, s, status, volume, dl_date, needs_permit, depends_on_snow, min_temp, equipment, travel_min, travel_km, travel_km_text, travel_text, created)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-       ON CONFLICT (id) DO UPDATE SET addr=EXCLUDED.addr, o=EXCLUDED.o, w=EXCLUDED.w, works=EXCLUDED.works`,
+      `INSERT INTO tasks (id, addr, o, w, works, m, d, dl, s, status, volume, dl_date, needs_permit, depends_on_snow, min_temp, equipment, travel_min, travel_km, travel_km_text, travel_text, lat, lng, coord_src, volumes, slesari, brigade, created, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+       ON CONFLICT (id) DO UPDATE SET addr=EXCLUDED.addr, o=EXCLUDED.o, w=EXCLUDED.w, works=EXCLUDED.works,
+         lat=EXCLUDED.lat, lng=EXCLUDED.lng, coord_src=EXCLUDED.coord_src, volumes=EXCLUDED.volumes, slesari=EXCLUDED.slesari, brigade=EXCLUDED.brigade, updated_at=EXCLUDED.updated_at`,
       [
         id, t.addr, t.o, t.w, JSON.stringify(t.works || [t.w]), t.m, t.d || 0, t.dl || 7, t.s || 'plan', t.status || 'plan',
         parseFloat(t.volume) || 1, t.dl_date, t.needs_permit || false, t.depends_on_snow || false,
         parseFloat(t.min_temp) || -50, t.equipment || '—',
         t.travelMin || 15, t.travelKm || null, t.travelKmText || null, t.travelText || null,
-        Date.now()
+        (t.lat != null && t.lat !== '') ? parseFloat(t.lat) : null,
+        (t.lng != null && t.lng !== '') ? parseFloat(t.lng) : null,
+        t.coord_src || null,
+        (t.volumes && t.volumes.length) ? JSON.stringify(t.volumes) : null,
+        (t.slesari && t.slesari.length) ? JSON.stringify(t.slesari) : null,
+        t.brigade || false,
+        Date.now(),
+        updAt
       ]
     );
-    res.json({ id, ...t });
+    res.json({ id, ...t, updated_at: updAt });
   } catch (err) {
     console.error('POST /api/tasks:', err);
     res.status(500).json({ error: err.message });
@@ -351,20 +580,29 @@ app.post('/api/tasks', async (req, res) => {
 app.put('/api/tasks/:id', async (req, res) => {
   try {
     const t = req.body;
+    const updAt = parseInt(t.updated_at, 10) || Date.now(); // версия задачи (защита от конфликтов)
     await query(
       `UPDATE tasks SET addr=$1, o=$2, w=$3, works=$4, m=$5, d=$6, dl=$7, s=$8, status=$9,
        volume=$10, dl_date=$11, needs_permit=$12, depends_on_snow=$13, min_temp=$14, equipment=$15,
-       travel_min=$16, travel_km=$17, travel_km_text=$18, travel_text=$19
-       WHERE id=$20`,
+       travel_min=$16, travel_km=$17, travel_km_text=$18, travel_text=$19,
+       lat=$20, lng=$21, coord_src=$22, volumes=$23, slesari=$24, brigade=$25, updated_at=$26
+       WHERE id=$27`,
       [
         t.addr, t.o, t.w, JSON.stringify(t.works || [t.w]), t.m, t.d, t.dl, t.s || 'plan', t.status || 'plan',
         parseFloat(t.volume) || 1, t.dl_date, t.needs_permit || false, t.depends_on_snow || false,
         parseFloat(t.min_temp) || -50, t.equipment || '—',
         t.travelMin || 15, t.travelKm, t.travelKmText, t.travelText,
+        (t.lat != null && t.lat !== '') ? parseFloat(t.lat) : null,
+        (t.lng != null && t.lng !== '') ? parseFloat(t.lng) : null,
+        t.coord_src || null,
+        (t.volumes && t.volumes.length) ? JSON.stringify(t.volumes) : null,
+        (t.slesari && t.slesari.length) ? JSON.stringify(t.slesari) : null,
+        t.brigade || false,
+        updAt,
         req.params.id
       ]
     );
-    res.json({ id: req.params.id, updated: true });
+    res.json({ id: req.params.id, updated: true, updated_at: updAt });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -405,8 +643,8 @@ app.put('/api/trash/restore/:id', async (req, res) => {
   try {
     const t = req.body || {};
     await query(
-      `UPDATE tasks SET status=$1, s=$2, addr=$3, m=$4, d=$5, dl=$6, volume=$7 WHERE id=$8`,
-      [t.status || 'plan', t.s || 'plan', t.addr || '', t.m || '', t.d || 0, t.dl || 7, t.volume || 1, req.params.id]
+      `UPDATE tasks SET status=$1, s=$2, addr=$3, m=$4, d=$5, dl=$6, volume=$7, updated_at=$8 WHERE id=$9`,
+      [t.status || 'plan', t.s || 'plan', t.addr || '', t.m || '', t.d || 0, t.dl || 7, t.volume || 1, Date.now(), req.params.id]
     );
     res.json({ restored: true });
   } catch (err) {
@@ -504,25 +742,6 @@ app.post('/api/seed', async (req, res) => {
     console.error('SEED error:', err);
     res.status(500).json({ error: err.message });
   }
-});
-
-// ============================================================
-// БАЗА ЗНАНИЙ AI (общая для всех, хранится на сервере)
-// ============================================================
-app.get('/api/aikb', async (req, res) => {
-  try {
-    const r = await query('SELECT text, updated_at, updated_by FROM ai_kb WHERE id = 1');
-    res.json(r.rows[0] || { text: '', updated_at: 0, updated_by: '' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/aikb', async (req, res) => {
-  try {
-    const { text, updated_by } = req.body;
-    await query('UPDATE ai_kb SET text = $1, updated_at = $2, updated_by = $3 WHERE id = 1',
-      [text || '', Date.now(), updated_by || '']);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ============================================================

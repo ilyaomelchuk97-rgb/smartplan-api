@@ -22,7 +22,15 @@ window.SP_TASKS = (function () {
   }
   function init() {
     var db = load();
-    if (!db || db.schema !== SCHEMA) { db = { schema: SCHEMA, tasks: [] }; memoryDB = db; }
+    if (!db) { db = { schema: SCHEMA, tasks: [] }; memoryDB = db; }
+    else if (db.schema !== SCHEMA) {
+      // ОБНОВЛЕНИЕ КОДА НЕ ТЕРЯЕТ ДАННЫЕ: прежний снимок — в smartplan_prev_,
+      // коллекция переносится в новую схему (лишние поля не мешают работе)
+      try { localStorage.setItem('smartplan_prev_' + KEY, JSON.stringify(db)); } catch (e) {}
+      db.schema = SCHEMA;
+      if (!db.tasks) db.tasks = [];
+      memoryDB = db;
+    }
     return memoryDB;
   }
   function reloadFromCloud(cloudData) {
@@ -42,11 +50,13 @@ window.SP_TASKS = (function () {
   function getTask(id) { var arr = init().tasks; for (var i = 0; i < arr.length; i++) if (arr[i].id === id) return arr[i]; return null; }
   function addTask(data) {
     var db = init();
-    var t = Object.assign({ id: 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) }, data);
+    // updated_at — версия задачи (защита от конфликтов: чья правка новее, та и выигрывает)
+    var t = Object.assign({ id: 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), updated_at: Date.now() }, data);
+    if (!t.updated_at) t.updated_at = Date.now();
     db.tasks.push(t); save(db);
     // Отправка на сервер
     if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
-      fetch(window.SP_CONFIG.serverUrl + '/api/tasks', {
+      (window.SP_NET ? SP_NET.send : fetch)(window.SP_CONFIG.serverUrl + '/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(t)
@@ -59,10 +69,11 @@ window.SP_TASKS = (function () {
     for (var i = 0; i < db.tasks.length; i++) if (db.tasks[i].id === id) { t = db.tasks[i]; break; }
     if (!t) return null;
     Object.assign(t, data);
+    t.updated_at = Date.now(); // каждая локальная правка — новая версия задачи
     save(db);
     // Отправка на сервер
     if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
-      fetch(window.SP_CONFIG.serverUrl + '/api/tasks/' + id, {
+      (window.SP_NET ? SP_NET.send : fetch)(window.SP_CONFIG.serverUrl + '/api/tasks/' + id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(t)
@@ -76,7 +87,7 @@ window.SP_TASKS = (function () {
     save(db);
     // Отправка на сервер
     if (window.SP_CONFIG && window.SP_CONFIG.serverUrl) {
-      fetch(window.SP_CONFIG.serverUrl + '/api/tasks/' + id, {
+      (window.SP_NET ? SP_NET.send : fetch)(window.SP_CONFIG.serverUrl + '/api/tasks/' + id, {
         method: 'DELETE'
       }).catch(function() {});
     }

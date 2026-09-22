@@ -23,10 +23,12 @@
 │   ├── data.js
 │   ├── db.js
 │   ├── users_db.js
+│   ├── areas_db.js      ← справочник участков (новое)
 │   ├── work_db.js
 │   ├── objects_db.js
 │   ├── tasks_db.js
 │   ├── xlsx.full.min.js
+│   ├── drive3d.html     ← 3D-вождение (машина встроена в файл)
 │   └── logo.png
 ├── backend/           ← бэкенд (для Render)
 │   ├── server.js
@@ -35,6 +37,23 @@
 ├── render.yaml        ← конфиг авто-деплоя Render
 └── netlify.toml       ← конфиг деплоя Netlify
 ```
+
+## REST API (эндпоинты)
+
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| GET/POST | `/api/areas` | Список / добавление участков |
+| PUT/DELETE | `/api/areas/:id` | Переименование (переносит works и users) / удаление участка |
+| GET/POST | `/api/works/:area` | Виды работ участка |
+| PUT/DELETE | `/api/works/:area/:id` | Изменение / удаление вида работы |
+| GET/POST | `/api/objects` | Справочник объектов (ГРП/ШРП): addr, type, **num**, lat, lng |
+| PUT/DELETE | `/api/objects/:id` | Изменение / удаление объекта |
+| GET/POST | `/api/tasks` | Задания (включая **lat/lng/coord_src** — координаты) |
+| PUT/DELETE | `/api/tasks/:id` | Изменение / мягкое удаление задания |
+| GET/POST | `/api/users`, PUT/DELETE `/api/users/:id` | Пользователи |
+| POST | `/api/auth` | Вход |
+
+Миграции БД применяются автоматически при старте (`CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`): таблица `areas`, колонки `objects.num`, `tasks.lat/lng/coord_src`.
 
 ## Шаг 2. Деплой бэкенда на Render
 

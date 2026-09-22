@@ -17,7 +17,7 @@ window.SP_CONFIG = (function () {
     }
     // Продакшен — адрес вашего API на Render
     // ⚠️ ЗАМЕНИТЕ на свой URL после деплоя!
-    return 'https://smartplan-api-596g.onrender.com';
+    return 'https://smartplan-api.onrender.com';
   })();
 
   return {
@@ -26,6 +26,15 @@ window.SP_CONFIG = (function () {
 
     // Режим сервера (true = данные на сервере, false = localStorage)
     useServerApi: true,
+
+    // Общая сетевая папка для синхронизации нескольких пользователей (без сервера).
+    // Показывается в окне синхронизации как папка для подключения.
+    syncFolder: '\\\\nas1\\Общая папка\\СЭОГС\\smartplan',
+
+    // Ключ Яндекс.Карт (бесплатный: developer.tech.yandex.ru) — включает
+    // ОФИЦИАЛЬНЫЙ роутер Яндекса на странице «Тест» (км/время по Яндексу).
+    // Пусто — используется дорожный расчёт с показом на Яндекс-карте.
+    yandexApiKey: '',
 
     // Ключи для routing API
     graphhopperApiKey: '57ef5c01-ff24-49f4-8131-b32511a787ed',
@@ -42,10 +51,9 @@ window.SP_CONFIG = (function () {
     // Бесплатно: 100 000 загрузок тайлов/мес (cloud.maptiler.com).
     maptilerApiKey: 'W7EjXYGEA3hzkGvx81JM',
 
-    // AI чат (Pollinations.ai → Qwen Large)
-    aiApiUrl: 'https://gen.pollinations.ai/v1/chat/completions',
-    aiApiKey: 'pk_htGhg9jx6QAwQ0MZ',
-    aiModel: 'qwen-large',
+    // Геокодеры (оставь пустым — будет пропущен; заполнить когда получишь ключ)
+    twogisKey: '',       // https://dev.2gis.ru/ → ключ для Catalog API
+    opencageKey: '',     // https://opencagedata.com/ → 2500 запросов/день бесплатно
 
     // Координаты для погоды
     weatherLat: 53.9023,
@@ -58,6 +66,7 @@ window.SP_CONFIG = (function () {
     endpoints: {
       users:   '/api/users',
       works:   '/api/works',
+      areas:   '/api/areas',
       objects: '/api/objects',
       tasks:   '/api/tasks',
       auth:    '/api/auth',

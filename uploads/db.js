@@ -15,15 +15,85 @@ window.SP_DB = (function () {
   var EP = CFG.endpoints || {};
   var serverOnline = false;
 
+  /* ============================================================
+     СЕТЬ: офлайн-баннер + ОЧЕРЕДЬ ОТПРАВКИ (outbox)
+     Если сеть недоступна — изменение пишется в очередь localStorage
+     и автоматически уходит на сервер при восстановлении соединения.
+     Все отправки идемпотентны (upsert по id), повтор безопасен.
+     ============================================================ */
+  var OUTBOX_KEY = 'smartplan_outbox';
+  function outboxRead() {
+    try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function outboxWrite(q) {
+    try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(q)); } catch (e) {}
+    netBannerUpdate();
+  }
+  function netBannerUpdate() {
+    var b = document.getElementById('net-banner');
+    if (!b) return;
+    var q = outboxRead();
+    if (!navigator.onLine) {
+      b.textContent = q.length
+        ? '🌐 Нет соединения — ' + q.length + ' ' + (q.length === 1 ? 'изменение ждёт' : 'изменений ждут') + ' отправки (уйдут на сервер автоматически)'
+        : '🌐 Нет соединения — изменения сохраняются локально';
+      b.classList.add('show');
+    } else {
+      b.classList.remove('show');
+    }
+  }
+  // Отправка с постановкой в очередь при отказе сети.
+  // Сигнатура совместима с fetch(url, opts) — вызовы меняются один в один.
+  function netSend(url, opts) {
+    opts = opts || {};
+    return fetch(url, opts).catch(function (err) {
+      try {
+        var q = outboxRead();
+        q.push({ url: url, opts: opts, ts: Date.now() });
+        if (q.length > 500) q = q.slice(-500); // страховка от переполнения
+        outboxWrite(q);
+      } catch (e) {}
+      throw err; // вызывающий код работает как раньше (offline — «не отправилось»)
+    });
+  }
+  // Повторная отправка очереди (по одному, останавливаемся при первой неудаче)
+  function netFlush() {
+    var q = outboxRead();
+    if (!q.length || !navigator.onLine) { netBannerUpdate(); return; }
+    var item = q[0];
+    fetch(item.url, item.opts).then(function () {
+      q.shift();
+      outboxWrite(q);
+      console.log('📤 Очередь: отправлено, осталось ' + q.length);
+      netFlush(); // следующее
+    }).catch(function () {
+      // сеть снова пропала — очередь остаётся
+      netBannerUpdate();
+    });
+  }
+  window.SP_NET = { send: netSend, flush: netFlush, banner: netBannerUpdate };
+  // Keep-alive: пока у кого-то открыто приложение — пингуем сервер каждые 10 минут,
+  // чтобы бесплатный инстанс Render не засыпал (холодный старт = 30–50 сек ожидания)
+  if (CFG.useServerApi && CFG.serverUrl) {
+    setInterval(function () {
+      try { fetch(CFG.serverUrl + '/api/health').catch(function () {}); } catch (e) {}
+    }, 10 * 60 * 1000);
+  }
+  window.addEventListener('online', function () { console.log('🌐 Сеть восстановлена — отправляем очередь'); netFlush(); });
+  window.addEventListener('offline', function () { netBannerUpdate(); });
+  // при загрузке: баннер по состоянию сети + попытка отправить накопленное
+  setTimeout(function () { netBannerUpdate(); netFlush(); }, 1500);
+
   // ============================================================
   // НИЗКОУРОВНЕВЫЕ HTTP-ЗАПРОСЫ (всегда пытаются отправить)
   // ============================================================
-  function apiGet(path) {
-    return fetch(API + path, { method: 'GET' })
+    function apiGet(path) {
+    return fetch(API + path, { method: 'GET', mode: 'cors' })
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
-      });
+      })
+      .catch(function(e) { throw e; });
   }
 
   function apiPost(path, data) {
@@ -61,12 +131,10 @@ window.SP_DB = (function () {
     return apiGet(EP.health)
       .then(function(data) {
         serverOnline = !!(data && data.status === 'ok');
-        console.log(serverOnline ? '✅ Сервер доступен' : '❌ Сервер недоступен');
         return serverOnline;
       })
       .catch(function() {
         serverOnline = false;
-        console.log('❌ Сервер недоступен');
         return false;
       });
   }
@@ -111,39 +179,141 @@ window.SP_DB = (function () {
       }).catch(function(e) { console.warn('  👥 Ошибка загрузки пользователей:', e.message); })
     );
 
-    // Виды работ
+    // Участки
     promises.push(
-      apiGet(EP.works + '/УБиРОГС').then(function(data) {
-        if (data && data.works) {
-          var dbData = { schema: 5, areas: { 'УБиРОГС': data.works } };
-          try { localStorage.setItem('smartplan_work_catalog', JSON.stringify(dbData)); } catch(e) {}
-          if (window.SP_WORK) window.SP_WORK.reloadFromCloud(dbData);
-          console.log('  🔧 Виды работ: ' + data.works.length);
+      apiGet((EP.areas || '/api/areas')).then(function(data) {
+        if (data && data.areas) {
+          var dbData = { schema: 1, areas: data.areas };
+          try { localStorage.setItem('smartplan_areas_db', JSON.stringify(dbData)); } catch(e) {}
+          if (window.SP_AREAS) window.SP_AREAS.reloadFromCloud(dbData);
+          console.log('  🗺 Участки: ' + data.areas.length);
         }
-      }).catch(function(e) { console.warn('  🔧 Ошибка загрузки работ:', e.message); })
+      }).catch(function(e) { console.warn('  🗺 Ошибка загрузки участков:', e.message); })
+    );
+
+    // Виды работ (по ВСЕМ участкам из справочника, с сохранением локальных)
+    promises.push(
+      (function () {
+        var areaNames = (window.SP_AREAS && window.SP_AREAS.getAreas) ? window.SP_AREAS.getAreas() : ['УБиРОГС'];
+        return Promise.all(areaNames.map(function (an) {
+          return apiGet(EP.works + '/' + encodeURIComponent(an)).then(function (data) {
+            if (data && data.works) return { area: an, works: data.works };
+            return null;
+          }).catch(function () { return null; });
+        })).then(function (results) {
+          // Начинаем с локального каталога — участки, которых нет на сервере, не теряем
+          var merged = {};
+          try { var loc = JSON.parse(localStorage.getItem('smartplan_work_catalog') || '{}'); if (loc && loc.areas) merged = loc.areas; } catch (e) {}
+          var cnt = 0;
+          results.forEach(function (r) {
+            if (r) { merged[r.area] = r.works; cnt += r.works.length; }
+          });
+          var dbData = { schema: 5, areas: merged };
+          try { localStorage.setItem('smartplan_work_catalog', JSON.stringify(dbData)); } catch (e) {}
+          if (window.SP_WORK) window.SP_WORK.reloadFromCloud(dbData);
+          console.log('  🔧 Виды работ: ' + cnt + ' (участков: ' + Object.keys(merged).length + ')');
+        });
+      })().catch(function (e) { console.warn('  🔧 Ошибка загрузки работ:', e.message); })
     );
 
     // Объекты
     promises.push(
       apiGet(EP.objects).then(function(data) {
         if (data && data.objects) {
+          // MERGE: сервер приоритетнее, но контур области (poly), описание и цвет
+          // не теряем, если на сервере их нет (старые записи до появления poly
+          // или импорт KML до обновления бэкенда). Такие объекты «залечиваем» —
+          // отправляем обратно на сервер, чтобы контуры сохранились у всех.
+          var localObjs = {};
+          try {
+            var ldb = JSON.parse(localStorage.getItem('smartplan_objects_db') || '{}');
+            (ldb.objects || []).forEach(function(o) { if (o && o.id) localObjs[o.id] = o; });
+          } catch(e) {}
+          var healed = [];
+          data.objects.forEach(function(o) {
+            var loc = localObjs[o.id];
+            if (!loc) return;
+            var needHeal = false;
+            if (!o.poly && loc.poly && loc.poly.length >= 3) { o.poly = loc.poly; needHeal = true; }
+            if ((o.descr == null || o.descr === '') && loc.descr) { o.descr = loc.descr; needHeal = true; }
+            if (!o.color && loc.color) { o.color = loc.color; needHeal = true; }
+            if (!o.respId && loc.respId) { o.respId = loc.respId; o.respName = loc.respName || ''; needHeal = true; }
+            if (needHeal) healed.push(o);
+          });
           var dbData = { schema: 2, objects: data.objects };
           try { localStorage.setItem('smartplan_objects_db', JSON.stringify(dbData)); } catch(e) {}
           if (window.SP_OBJECTS) window.SP_OBJECTS.reloadFromCloud(dbData);
+          // залечиваем сервер: контуры, которые были только локально
+          if (healed.length && CFG.useServerApi && CFG.serverUrl) {
+            healed.forEach(function(o) {
+              try {
+                (window.SP_NET ? SP_NET.send : fetch)(CFG.serverUrl + '/api/objects/' + encodeURIComponent(o.id), {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(o)
+                }).catch(function() {});
+              } catch(e) {}
+            });
+            console.log('  📍 Залечено контуров областей: ' + healed.length);
+          }
           console.log('  📍 Объекты: ' + data.objects.length);
         }
       }).catch(function(e) { console.warn('  📍 Ошибка загрузки объектов:', e.message); })
     );
 
-    // Задания — MERGE вместо замены
+    // Работники (время работы, графики, бригады, отсутствия)
+    promises.push(
+      apiGet('/api/workers').then(function(data) {
+        if (data && data.workers) {
+          var dbData = { schema: 1, workers: data.workers };
+          try { localStorage.setItem('smartplan_workers_db', JSON.stringify(dbData)); } catch(e) {}
+          if (window.SP_WORKERS) window.SP_WORKERS.reloadFromCloud(dbData);
+          console.log('  👷 Работники: ' + Object.keys(data.workers).length);
+        }
+      }).catch(function(e) { console.warn('  👷 Ошибка загрузки работников:', e.message); })
+    );
+
+    // Задания — MERGE по updated_at (защита от конфликтов вместо слепой замены):
+    //  · серверная версия новее локальной → берём серверную (правка другого пользователя);
+    //  · локальная новее (своя правка ещё не дошла/сделана офлайн) → сохраняем локальную;
+    //  · задачи, созданные офлайн (их нет на сервере) → сохраняем, ЕСЛИ их нет
+    //    в серверной корзине (иначе это удаление с другого устройства);
+    //  · о полученных от других пользователей изменениях — предупреждение.
     promises.push(
       apiGet(EP.tasks).then(function(data) {
-        if (data && data.tasks) {
-          var dbData = { schema: 3, tasks: data.tasks };
+        if (!data || !data.tasks) return;
+        return apiGet('/api/trash').catch(function() { return null; }).then(function(trashData) {
+          var serverTrashIds = {};
+          if (trashData && trashData.tasks) trashData.tasks.forEach(function(t) { if (t && t.id) serverTrashIds[t.id] = 1; });
+          var localTasks = window.SP_TASKS ? window.SP_TASKS.getTasks() : [];
+          var byId = {};
+          localTasks.forEach(function(t) { if (t && t.id) byId[t.id] = t; });
+          function sig(t) {
+            return JSON.stringify([t.addr, t.o, t.works || [t.w], t.volumes, t.m, t.d, t.dl, t.s || t.status, t.brigade, t.slesari, t.lat, t.lng]);
+          }
+          var merged = [], seen = {}, updatedByOthers = 0, keptLocal = 0;
+          data.tasks.forEach(function(st) {
+            if (!st || !st.id) return;
+            seen[st.id] = 1;
+            var lt = byId[st.id];
+            if (lt && lt.updated_at != null && (st.updated_at == null || lt.updated_at > st.updated_at)) {
+              merged.push(lt); keptLocal++; // своя правка новее — не даём серверу её затереть
+            } else {
+              if (lt && st.updated_at != null && (lt.updated_at == null || st.updated_at > lt.updated_at) && sig(lt) !== sig(st)) updatedByOthers++;
+              merged.push(st);
+            }
+          });
+          localTasks.forEach(function(t) {
+            if (t && t.id && !seen[t.id] && !serverTrashIds[t.id]) merged.push(t); // создана офлайн — сохраняем
+          });
+          var dbData = { schema: 3, tasks: merged };
           try { localStorage.setItem('smartplan_tasks_db', JSON.stringify(dbData)); } catch(e) {}
           if (window.SP_TASKS) window.SP_TASKS.reloadFromCloud(dbData);
-          console.log('  📋 Задания: ' + data.tasks.length);
-        }
+          console.log('  📋 Задания: ' + merged.length + ' (локальных новее сервера: ' + keptLocal + ')');
+          if (updatedByOthers > 0 && typeof window.SP_toast === 'function') {
+            try { window.SP_toast('warn', '⚠ Другие пользователи изменили задач: ' + updatedByOthers); } catch (e) {}
+          }
+        });
       }).catch(function(e) { console.warn('  📋 Ошибка загрузки заданий:', e.message); })
     );
 
@@ -174,7 +344,7 @@ window.SP_DB = (function () {
   // Пользователь: создать/обновить
   function sendUser(user) {
     if (!API) return;
-    apiPost(EP.users, user)
+    netSend(API + EP.users, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(user) })
       .then(function() { console.log('✅ Пользователь отправлен на сервер:', user.login); })
       .catch(function(e) { console.warn('⚠️ Ошибка отправки пользователя:', e.message); });
   }
@@ -182,7 +352,7 @@ window.SP_DB = (function () {
   // Пользователь: удалить
   function sendUserDelete(id) {
     if (!API) return;
-    apiDelete(EP.users + '/' + id)
+    netSend(API + EP.users + '/' + id, { method: 'DELETE' })
       .then(function() { console.log('✅ Пользователь удалён на сервере:', id); })
       .catch(function(e) { console.warn('⚠️ Ошибка удаления пользователя:', e.message); });
   }
@@ -190,7 +360,7 @@ window.SP_DB = (function () {
   // Работа: создать/обновить
   function sendWork(area, work) {
     if (!API) return;
-    apiPost(EP.works + '/' + area, work)
+    netSend(API + EP.works + '/' + area, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(work) })
       .then(function() { console.log('✅ Работа отправлена на сервер:', work.name); })
       .catch(function(e) { console.warn('⚠️ Ошибка отправки работы:', e.message); });
   }
@@ -198,7 +368,7 @@ window.SP_DB = (function () {
   // Работа: удалить
   function sendWorkDelete(area, id) {
     if (!API) return;
-    apiDelete(EP.works + '/' + area + '/' + id)
+    netSend(API + EP.works + '/' + area + '/' + id, { method: 'DELETE' })
       .then(function() { console.log('✅ Работа удалена на сервере:', id); })
       .catch(function(e) { console.warn('⚠️ Ошибка удаления работы:', e.message); });
   }
@@ -211,7 +381,7 @@ window.SP_DB = (function () {
     if (payload.works && Array.isArray(payload.works)) {
       // сервер ожидает works как массив (сам сериализует)
     }
-    apiPost(EP.tasks, payload)
+    netSend(API + EP.tasks, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function() { console.log('✅ Задание отправлено на сервер:', task.id); })
       .catch(function(e) { console.warn('⚠️ Ошибка отправки задания:', e.message); });
   }
@@ -219,7 +389,7 @@ window.SP_DB = (function () {
   // Задание: удалить
   function sendTaskDelete(id) {
     if (!API) return;
-    apiDelete(EP.tasks + '/' + id)
+    netSend(API + EP.tasks + '/' + id, { method: 'DELETE' })
       .then(function() { console.log('✅ Задание удалено на сервере:', id); })
       .catch(function(e) { console.warn('⚠️ Ошибка удаления задания:', e.message); });
   }
@@ -227,7 +397,7 @@ window.SP_DB = (function () {
   // Объект: создать/обновить
   function sendObject(obj) {
     if (!API) return;
-    apiPost(EP.objects, obj)
+    netSend(API + EP.objects, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) })
       .then(function() { console.log('✅ Объект отправлен на сервер:', obj.addr); })
       .catch(function(e) { console.warn('⚠️ Ошибка отправки объекта:', e.message); });
   }
@@ -242,6 +412,7 @@ window.SP_DB = (function () {
         return syncFromServer().then(function() {
           // Заполняем сидами только то, чего нет (админ, базовые работы)
           return Promise.all([
+            window.SP_AREAS ? window.SP_AREAS.ensureSeed() : Promise.resolve(),
             window.SP_USERS_DB.ensureSeed(),
             window.SP_WORK.ensureSeed(),
             window.SP_OBJECTS.ensureSeed(),
@@ -254,6 +425,7 @@ window.SP_DB = (function () {
       } else {
         // Автономный режим
         return Promise.all([
+          window.SP_AREAS ? window.SP_AREAS.ensureSeed() : Promise.resolve(),
           window.SP_USERS_DB.ensureSeed(),
           window.SP_WORK.ensureSeed(),
           window.SP_OBJECTS.ensureSeed(),

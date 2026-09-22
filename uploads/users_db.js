@@ -27,7 +27,15 @@ window.SP_USERS_DB = (function () {
   }
   function init() {
     var db = load();
-    if (!db || db.schema !== 3) { db = { schema: 3, users: [] }; memoryDB = db; }
+    if (!db) { db = { schema: 3, users: [] }; memoryDB = db; }
+    else if (db.schema !== 3) {
+      // ОБНОВЛЕНИЕ КОДА НЕ ТЕРЯЕТ ДАННЫЕ: прежний снимок — в smartplan_prev_,
+      // коллекция переносится в новую схему (лишние поля не мешают работе)
+      try { localStorage.setItem('smartplan_prev_' + KEY, JSON.stringify(db)); } catch (e) {}
+      db.schema = 3;
+      if (!db.users) db.users = [];
+      memoryDB = db;
+    }
     return memoryDB;
   }
   function reloadFromCloud(cloudData) {
@@ -43,7 +51,7 @@ window.SP_USERS_DB = (function () {
       return;
     }
     try {
-      fetch(window.SP_CONFIG.serverUrl + window.SP_CONFIG.endpoints.users, {
+      (window.SP_NET ? SP_NET.send : fetch)(window.SP_CONFIG.serverUrl + window.SP_CONFIG.endpoints.users, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(db.users)
@@ -83,6 +91,14 @@ window.SP_USERS_DB = (function () {
       .then(function () { return hash('seogs123'); }).then(function (h) {
         add({ id: 'u_seogs', login: 'seogs', password: h, plain_password: 'seogs123', full_name: 'Начальник СЭОГС', role: 'viewer', area: 'Все участки', color: '#64748b', active: true, seed: true });
       })
+      // Пока сайт в тесте: стандартный мастер и слесарь (добавляются и в существующую
+      // базу при загрузке — id нет в списке, ensureSeed дозаполняет)
+      .then(function () { return hash('master123'); }).then(function (h) {
+        add({ id: 'u_master_demo', login: 'master', password: h, plain_password: 'master123', full_name: 'Иванов Сергей Петрович', role: 'master', area: 'УБиРОГС', color: '#2563eb', active: true, seed: true });
+      })
+      .then(function () { return hash('slesar123'); }).then(function (h) {
+        add({ id: 'u_slesar_demo', login: 'slesar', password: h, plain_password: 'slesar123', full_name: 'Петров Андрей Николаевич', role: 'slesar', area: 'УБиРОГС', color: '#059669', active: true, seed: true });
+      })
       .then(function () { save(db); return db; });
   }
 
@@ -116,12 +132,13 @@ window.SP_USERS_DB = (function () {
       var u = {
         id: newId(), login: data.login, password: h, plain_password: data.password,
         full_name: data.full_name, role: data.role, area: data.area || '',
+        prof: data.prof || '',
         color: data.color || nextColor(), active: data.active !== false, created: Date.now()
       };
       db.users.push(u); save(db);
       // Синхронизация с сервером
       if (window.SP_DB) {
-        fetch((window.SP_CONFIG.serverUrl || '') + '/api/users', {
+        (window.SP_NET ? SP_NET.send : fetch)((window.SP_CONFIG.serverUrl || '') + '/api/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(u)
@@ -141,6 +158,7 @@ window.SP_USERS_DB = (function () {
     if (data.full_name !== undefined) u.full_name = data.full_name;
     if (data.role !== undefined) u.role = data.role;
     if (data.area !== undefined) u.area = data.area;
+    if (data.prof !== undefined) u.prof = data.prof;
     if (data.active !== undefined) u.active = data.active;
     if (data.color !== undefined) u.color = data.color;
     if (data.password !== undefined) u.plain_password = data.password;
@@ -148,7 +166,7 @@ window.SP_USERS_DB = (function () {
     return op.then(function () { save(db);
       // Синхронизация с сервером
       if (window.SP_CONFIG) {
-        fetch((window.SP_CONFIG.serverUrl || '') + '/api/users/' + id, {
+        (window.SP_NET ? SP_NET.send : fetch)((window.SP_CONFIG.serverUrl || '') + '/api/users/' + id, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(Object.assign({ id: id }, data))
@@ -166,7 +184,7 @@ window.SP_USERS_DB = (function () {
     save(db);
     // Синхронизация с сервером
     if (window.SP_CONFIG) {
-      fetch((window.SP_CONFIG.serverUrl || '') + '/api/users/' + id, {
+      (window.SP_NET ? SP_NET.send : fetch)((window.SP_CONFIG.serverUrl || '') + '/api/users/' + id, {
         method: 'DELETE'
       }).catch(function() {});
     }
