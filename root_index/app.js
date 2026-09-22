@@ -672,9 +672,9 @@
     calendar: ['Планирование / Календарь', 'Перетаскивайте карточки: влево/вправо — смена даты, вверх/вниз — смена мастера'],
     graphs: ['Планирование / График работ', 'График работ на год: объекты, периодичность и запланированные работы'],
     map: ['Карта маршрутов', 'Оптимизация пути между объектами и выбор картографического сервиса'],
-    objmap: ['Карта объектов', 'Все точки и области справочника (ГРП, ШРП, ГРС, ПГРП) на одной карте'],
+    objmap: ['Карта объектов', 'Сборка 21.09-23 · все точки и области справочника (ГРП, ШРП, ГРС, ПГРП) на одной карте'],
     testmap: ['Тест', 'Полигон: копия «Карта маршрутов» для экспериментов — рабочие страницы не затрагивает'],
-    wxtest: ['Тест погодный', 'Карта осадков: радар и прогноз RainViewer + ссылка на Яндекс.Осадки'],
+    wxtest: ['Тест погодный', 'Сборка 21.09-23 · карта осадков: только прогноз Open-Meteo (ERA5 архив + ICON-EU) по сетке 16×16 точек · Минск и Минский район'],
     livemap: ['Карта местоположения', 'Маршруты всех мастеров на сегодня — на одной Яндекс-карте'],
     perms: ['Разрешения', 'Система разрешений на производство работ'],
     refs: ['Справочники', 'Виды работ, нормы времени, объекты газоснабжения'],
@@ -1135,10 +1135,10 @@
   }
 
 
-  // 🗺 Карта погоды (RainViewer радар + слои по районам Минска на 48 часов)
-  // Слои (мультивыбор, слева сверху): температура, дождь, снег, ветер, давление, пыльца.
-  // Ползунок внизу: с 00:00 сегодня до 23:00 завтра. Дождь/снег подсвечиваются на карте.
-  // Минский район выделен красивой светящейся окантовкой. Яндекс.Погода удалена.
+  // 🗺 Карта погоды: ТОЛЬКО Open-Meteo (без радара)
+  // Прошлое (0..nowH) — ERA5 архив (api.archive-api.open-meteo.com), будущее (nowH+1..23) — DWD ICON-EU.
+  // Ползунок внизу: с 00:00 сегодня до 23:00. Дождь/снег подсвечиваются на карте.
+  // Минский район выделен светящейся окантовкой, точки сетки — только внутри района.
 
   // Граница Минского района (ОSM relation 59190), упрощена до ~88 точек. Формат [lat,lng].
   var MINSK_DISTRICT_BORDER = [[53.9306,27.9145],[53.907,27.9156],[53.9038,27.8846],[53.8889,27.8964],[53.874,27.8653],[53.855,27.8865],[53.8188,27.879],[53.8221,27.9319],[53.8073,27.9619],[53.7679,27.9427],[53.7538,27.8731],[53.765,27.7832],[53.7464,27.7436],[53.734,27.7579],[53.7178,27.7083],[53.7002,27.7206],[53.6839,27.711],[53.6713,27.6534],[53.6529,27.6309],[53.6397,27.6363],[53.6271,27.5358],[53.6505,27.5193],[53.6593,27.5292],[53.6651,27.4718],[53.714,27.4453],[53.7253,27.396],[53.74,27.4168],[53.7636,27.4127],[53.7846,27.3497],[53.8033,27.3683],[53.7955,27.3291],[53.8139,27.2788],[53.8398,27.2568],[53.8473,27.2686],[53.8734,27.1985],[53.8546,27.1772],[53.8711,27.1438],[53.8626,27.0876],[53.8907,27.0668],[53.8847,27.0187],[53.9426,27.0325],[53.9477,27.077],[54.0098,27.132],[54.0036,27.1839],[54.0196,27.1991],[54.0413,27.1923],[54.0453,27.1664],[54.0669,27.1717],[54.0671,27.1898],[54.0846,27.1646],[54.0928,27.2165],[54.1361,27.2135],[54.1474,27.2536],[54.138,27.2866],[54.1487,27.2936],[54.1648,27.2739],[54.1873,27.3062],[54.2081,27.3014],[54.2331,27.338],[54.2465,27.3355],[54.236,27.3556],[54.2518,27.3673],[54.2551,27.4074],[54.2544,27.4379],[54.2379,27.4311],[54.2343,27.4475],[54.2128,27.4477],[54.1889,27.5037],[54.1962,27.568],[54.1739,27.5838],[54.1517,27.5542],[54.1218,27.5698],[54.102,27.5617],[54.0723,27.5923],[54.064,27.6533],[54.0919,27.6432],[54.1029,27.6056],[54.1146,27.6736],[54.1143,27.7076],[54.0911,27.7187],[54.0787,27.8017],[54.0463,27.7946],[54.0298,27.8491],[54.0164,27.8395],[53.9892,27.8579],[53.9927,27.8828],[53.9698,27.8788],[53.9306,27.9145]];
@@ -2616,454 +2616,6 @@
     { id:'wind',     name:'Ветер',       ic:'💨', col:'#a78bfa' }
   ];
 
-  var WXM = null; // состояние карты погоды
-
-  function tempColor(t) {
-    if (t == null) return '#94a3b8';
-    if (t < -10) return '#1d4ed8';
-    if (t < 1) return '#3b82f6';
-    if (t < 9) return '#06b6d4';
-    if (t < 16) return '#10b981';
-    if (t < 23) return '#84cc16';
-    if (t < 29) return '#f59e0b';
-    if (t < 34) return '#f97316';
-    return '#dc2626';
-  }
-  function pollenLabel(sum) {
-    if (sum == null) return 'нет данных';
-    if (sum <= 0) return 'нет';
-    if (sum < 10) return 'низкая';
-    if (sum < 100) return 'средняя';
-    return 'высокая';
-  }
-
-  function openWeatherMap() {
-    // Убираем старую карту, если была
-    if (WXM && WXM.map) { try { WXM.map.remove(); } catch (e) {} }
-    if (window._wxMap) { try { window._wxMap.remove(); } catch (e) {} window._wxMap = null; }
-    stopWxRadarAnim();
-    var ov = document.getElementById('wx-map-overlay');
-    if (!ov) {
-      ov = document.createElement('div');
-      ov.id = 'wx-map-overlay';
-      document.body.appendChild(ov);
-      ov.addEventListener('click', function (e) { if (e.target === ov) closeWeatherMap(); });
-    }
-    // ВСЕГДА пересоздаём содержимое → свежий #wx-map-canvas без устаревшего Leaflet-id (фикс повторного открытия)
-    ov.innerHTML = '<div id=\"wx-map-window\">' +
-      '<div id=\"wx-map-header\">' +
-        '<button id=\"wx-yandex-btn\" class=\"wx-yandex-open\" data-action=\"open-yandex\" title=\"Открыть Яндекс Погоду\">🌧 Яндекс Погода</button>' +
-        '<span class=\"wx-title\">🗺 Карта погоды · Минск и Минский район</span>' +
-        '<div id=\"wx-basemap-sel\">' +
-          '<button class=\"wx-bm-btn on\" data-action=\"wx-basemap\" data-bm=\"yandex\" title=\"Яндекс.Карта (проекция EPSG:3395)\">Яндекс</button>' +
-          '<button class=\"wx-bm-btn\" data-action=\"wx-basemap\" data-bm=\"google\">Google</button>' +
-        '</div>' +
-        '<button id=\"wx-map-close\" class=\"x\" data-action=\"close-wx-map\" title=\"Закрыть\">×</button>' +
-      '</div>' +
-      '<div id=\"wx-map-body\">' +
-        '<div id=\"wx-loading\">Загрузка карты погоды…</div>' +
-        '<div id=\"wx-map-canvas\" style=\"display:none\"></div>' +
-        '<div id=\"wx-particles\" style=\"display:none\"></div>' +
-        '<div id=\"wx-timeline\" class=\"wx-timeline\"></div>' +
-      '</div>' +
-    '</div>';
-    ov.classList.add('show');
-    WXM = {
-      map: null, basemap: 'yandex', baseLayer: null,
-      layers: { temp: true, rain: true, snow: false, wind: false, pressure: false },
-      hour: (function () { var h = new Date().getHours(); return Math.max(0, Math.min(47, h)); })(),
-      day0epoch: Math.floor(new Date().setHours(0, 0, 0, 0) / 1000),
-      frames: [], host: '', pastCount: 0, radarPos: 0,
-      radarLayer: null, radarTm: null,
-      regionGroup: null, cellGroup: null, labelGroup: null, stormGroup: null, dropGroup: null, rainGroup: null,
-      fetchData: {}, playTm: null
-    };
-    buildWxTimeline();
-    ensureLeaflet(initWxMap);
-  }
-
-  function closeWeatherMap() {
-    stopWxRadarAnim();
-    if (WXM) {
-      if (WXM.playTm) { clearInterval(WXM.playTm); WXM.playTm = null; }
-      if (WXM.map) { try { WXM.map.remove(); } catch (e) {} }
-      WXM = null;
-    }
-    if (window._wxMap) { try { window._wxMap.remove(); } catch (e) {} window._wxMap = null; }
-    var ov = document.getElementById('wx-map-overlay');
-    if (ov) ov.classList.remove('show');
-  }
-
-  // Нижний таймлайн (48 часов)
-  function buildWxTimeline() {
-    var box = document.getElementById('wx-timeline');
-    if (!box || !WXM) return;
-    var html = '<div class="wx-tl-top"><div><div class="wx-tl-date" id="wx-tl-date">—</div><div class="wx-tl-sub" id="wx-tl-sub"></div></div>' +
-      '<div class="wx-tl-btns"><button class="wx-tl-btn" data-action="wx-tl-prev" title="Назад">‹</button>' +
-      '<button class="wx-tl-btn" data-action="wx-tl-play" title="Воспроизвести">▶</button>' +
-      '<button class="wx-tl-btn" data-action="wx-tl-next" title="Вперёд">›</button></div></div>';
-    html += '<div class="wx-tl-slider-wrap"><input type="range" class="wx-tl-slider" id="wx-tl-slider" min="0" max="47" step="1" value="' + WXM.hour + '"></div>';
-    html += '<div class="wx-tl-ticks"><span>00</span><span>06</span><span>12</span><span>18</span><span>Завтра 00</span><span>06</span><span>12</span><span>18</span></div>';
-    box.innerHTML = html;
-    var sl = document.getElementById('wx-tl-slider');
-    if (sl) sl.addEventListener('input', function () { setWxHour(parseInt(sl.value, 10)); });
-    updateWxTimelineLabel();
-  }
-
-  function updateWxTimelineLabel() {
-    var dEl = document.getElementById('wx-tl-date');
-    var sEl = document.getElementById('wx-tl-sub');
-    if (!dEl || !WXM) return;
-    var h = WXM.hour, hh = h % 24, day = (h < 24) ? 0 : 1;
-    var dayName = (day === 0) ? 'Сегодня' : 'Завтра';
-    dEl.textContent = dayName + ', ' + String(hh).padStart(2, '0') + ':00';
-    var nowH = new Date().getHours();
-    if (day === 0 && hh === nowH) dEl.textContent = 'Сейчас, ' + String(hh).padStart(2, '0') + ':00';
-    if (sEl) sEl.textContent = '';
-  }
-
-  var _wxRenderTm = null;
-  function setWxHour(h) {
-    if (!WXM) return;
-    WXM.hour = Math.max(0, Math.min(47, h));
-    var sl = document.getElementById('wx-tl-slider');
-    if (sl) sl.value = WXM.hour;
-    updateWxTimelineLabel();
-    if (_wxRenderTm) clearTimeout(_wxRenderTm);
-    _wxRenderTm = setTimeout(renderWxHour, 90); // дебаунс → плавное перетаскивание
-  }
-
-  function toggleWxPlay() {
-    var btn = document.querySelector('[data-action="wx-tl-play"]');
-    if (!WXM) return;
-    if (WXM.playTm) { clearInterval(WXM.playTm); WXM.playTm = null; if (btn) { btn.textContent = '▶'; btn.classList.remove('on'); } return; }
-    if (btn) { btn.textContent = '❚❚'; btn.classList.add('on'); }
-    WXM.playTm = setInterval(function () { var nh = WXM.hour + 1; if (nh > 47) nh = 0; setWxHour(nh); }, 800);
-  }
-
-  // Подложка: стандартный OSM или Google Maps
-  function setWxBasemap(bm) {
-    if (!WXM) return;
-    var prev = WXM.basemap;
-    WXM.basemap = bm;
-    // Смена проекции (Яндекс EPSG:3395 <-> OSM/Google EPSG:3857) — пересоздаём карту.
-    if (!WXM.map || (prev === 'yandex') !== (bm === 'yandex')) {
-      buildWxMapCanvas();
-      return;
-    }
-    // Та же проекция (OSM <-> Google) — просто меняем слой подложки.
-    if (WXM.baseLayer) { try { WXM.map.removeLayer(WXM.baseLayer); } catch (e) {} }
-    var url, sub, attr;
-    if (bm === 'google') { url = 'https://mt{s}.google.com/vt/lyrs=m&hl=ru&x={x}&y={y}&z={z}'; sub = ['0', '1', '2', '3']; attr = 'Google'; }
-    WXM.baseLayer = window.L.tileLayer(url, { subdomains: sub, maxZoom: 19, maxNativeZoom: 19, attribution: attr }).addTo(WXM.map);
-    document.querySelectorAll('.wx-bm-btn').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-bm') === bm); });
-  }
-
-  function initWxMap() {
-    if (!window.L) { var ld = document.getElementById('wx-loading'); if (ld) ld.textContent = 'Не удалось загрузить карту'; return; }
-    var canvas = document.getElementById('wx-map-canvas');
-    if (!canvas) return;
-    var loadingEl = document.getElementById('wx-loading');
-    if (loadingEl) loadingEl.style.display = 'none';
-    canvas.style.display = 'block';
-    buildWxMapCanvas();
-    loadWxRadar();
-    loadWxRegionData();
-  }
-
-  // Создание/пересоздание карты погоды с учётом проекции подложки.
-  // Яндекс — EPSG:3395, OSM/Google — EPSG:3857. При смене проекции карту нужно
-  // пересоздать, поэтому вся инициализация (карта, pane, группы, подложка) — здесь.
-  function buildWxMapCanvas() {
-    if (!WXM || !window.L) return;
-    stopWxRadarAnim();
-    if (WXM.map) { try { WXM.map.remove(); } catch (e) {} }
-    window._wxMap = null; WXM.map = null; WXM.baseLayer = null; WXM.radarLayer = null;
-    var canvas = document.getElementById('wx-map-canvas');
-    if (!canvas) return;
-    canvas.innerHTML = '';
-    try { delete canvas._leaflet_id; } catch (e) { try { canvas._leaflet_id = null; } catch (e2) {} }
-    var useYandex = (WXM.basemap === 'yandex');
-    var mapOpts = { center: [53.9023, 27.5619], zoom: 10, minZoom: 7, maxZoom: 16, attributionControl: false, zoomControl: true };
-    if (useYandex && window.L.CRS && window.L.CRS.EPSG3395) mapOpts.crs = window.L.CRS.EPSG3395;
-    var map = window.L.map('wx-map-canvas', mapOpts);
-    window._wxMap = map; WXM.map = map;
-    map.on('zoomend', function () { renderWxHour(); });
-    map.on('movestart', function () { var p = map.getPane('wxcells'); if (p) p.classList.add('wx-dragging'); });
-    map.on('moveend', function () { var p = map.getPane('wxcells'); if (p) p.classList.remove('wx-dragging'); if (WXM) renderWxCellParticles(!!WXM._pR, !!WXM._pS); });
-    map.on('click', function (e) { showWxPointData(e.latlng); });
-    WXM.radarPane = map.createPane('wxradar'); WXM.radarPane.style.zIndex = 450;
-    var stormPane = map.createPane('wxstorm'); stormPane.style.zIndex = 460;
-    WXM.regionGroup = window.L.layerGroup().addTo(map);
-    WXM.cellGroup = window.L.layerGroup().addTo(map);
-    WXM.labelGroup = window.L.layerGroup().addTo(map);
-    WXM.stormGroup = window.L.layerGroup().addTo(map);
-    WXM.dropGroup = window.L.layerGroup().addTo(map);
-    if (!document.getElementById('wxRound')) {
-      var fsv = document.createElement('div'); fsv.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
-      fsv.innerHTML = '<svg><defs><filter id="wxRound" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b"/><feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 13 -4.5"/></filter></defs></svg>';
-      document.body.appendChild(fsv);
-    }
-    var cellsPane = map.createPane('wxcells'); cellsPane.style.zIndex = 410; cellsPane.classList.add('wxcells-pane');
-    WXM.cellLayers = null; WXM.regionBuilt = false; WXM.radarCache = {};
-    var url, sub, attr;
-    if (useYandex) {
-      url = 'https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}'; sub = ['1', '2', '3', '4']; attr = '© Яндекс';
-    } else {
-      url = 'https://mt{s}.google.com/vt/lyrs=m&hl=ru&x={x}&y={y}&z={z}'; sub = ['0', '1', '2', '3']; attr = 'Google';
-    }
-    WXM.baseLayer = window.L.tileLayer(url, { subdomains: sub, maxZoom: 19, maxNativeZoom: 19, attribution: attr }).addTo(map);
-    document.querySelectorAll('.wx-bm-btn').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-bm') === WXM.basemap); });
-    // Радар RainViewer — в проекции EPSG:3857. На Яндекс-подложке (EPSG:3395) он был бы
-    // смещён (~35 км), поэтому там его не показываем. Ячейки погоды работают на любой подложке.
-    if (!useYandex && WXM.frames && WXM.frames.length) {
-      startWxRadarAnim();
-    } else if (useYandex) {
-      WXM.radarPane.style.display = 'none';
-    }
-    renderWxHour();
-    setTimeout(function () { map.invalidateSize(); }, 60);
-    setTimeout(function () { map.invalidateSize(); }, 250);
-    if (useYandex) { try { toast('info', 'Подложка: Яндекс. Радар дождя на ней отключён (разные проекции карт), ячейки погоды работают корректно.'); } catch (e) {} }
-  }
-
-  // Радар RainViewer — отдельный анимированный слой дождя поверх карты
-  function loadWxRadar() {
-    if (!WXM || !WXM.map) return;
-    fetch('https://api.rainviewer.com/public/weather-maps.json').then(function (r) { return r.json(); }).then(function (data) {
-      if (!WXM || !WXM.map) return;
-      WXM.host = data.host;
-      var past = (data.radar && data.radar.past) ? data.radar.past : [];
-      var now = (data.radar && data.radar.nowcast) ? data.radar.nowcast : [];
-      WXM.frames = past.concat(now);
-      WXM.pastCount = past.length;
-      WXM.radarPos = WXM.frames.length - 1;
-      startWxRadarAnim();
-    }).catch(function () {});
-  }
-  function showRadarFrame(idx) {
-    if (!WXM || !WXM.map || !WXM.frames.length) return;
-    if (WXM.radarLayer) { WXM.radarLayer.setOpacity(0); }
-    var fr = WXM.frames[idx]; if (!fr) return;
-    if (!WXM.radarCache) WXM.radarCache = {};
-    var hostBase = WXM.host.replace('tilecache.rainviewer.com', '{s}.tilecache.rainviewer.com');
-    var u = hostBase + fr.path + '/256/{z}/{x}/{y}/2/1_1.png';
-    if (!WXM.radarCache[idx]) {
-      WXM.radarCache[idx] = window.L.tileLayer(u, {
-        opacity: 0, tileSize: 256, pane: 'wxradar', maxNativeZoom: 10, maxZoom: 16,
-        subdomains: ['a','b','c'], className: 'wx-radar-tile', keepBuffer: 4
-      });
-      WXM.radarCache[idx].on('tileerror', function (ev) { if (ev.tile) ev.tile.style.display = 'none'; });
-      WXM.radarCache[idx].addTo(WXM.map);
-    }
-    WXM.radarCache[idx].setOpacity(0.55);
-    WXM.radarLayer = WXM.radarCache[idx];
-  }
-  function startWxRadarAnim() {
-    stopWxRadarAnim();
-    if (!WXM || !WXM.frames.length) return;
-    var mf = Math.min(8, WXM.frames.length);
-    WXM.frames = WXM.frames.slice(-mf);
-    WXM.radarPos = 0; WXM.radarCache = {};
-    showRadarFrame(WXM.radarPos);
-    WXM.radarTm = setInterval(function () {
-      if (!WXM || !WXM.frames.length) return;
-      WXM.radarPos = (WXM.radarPos + 1) % WXM.frames.length;
-      showRadarFrame(WXM.radarPos);
-    }, 2000);
-  }
-  function stopWxRadarAnim() { if (WXM && WXM.radarTm) { clearInterval(WXM.radarTm); WXM.radarTm = null; } }
-
-  // Загрузка погоды по сетке точек (13 запросов); ячейки берут ближайшую точку
-  function loadWxRegionData() {
-    if (!WXM) return;
-    WX_FETCH.forEach(function (p, fi) {
-      var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + p[0] + '&longitude=' + p[1] +
-        '&hourly=temperature_2m,precipitation,rain,snowfall,weather_code,wind_speed_10m,surface_pressure,precipitation_probability' +
-        '&timezone=Europe%2FMinsk&forecast_days=2';
-      fetch(url).then(function (resp) { return resp.json(); }).then(function (j) {
-        if (!WXM || !j || !j.hourly) return;
-        var h = j.hourly, arr = [];
-        for (var i = 0; i < 48; i++) {
-          var code = h.weather_code ? (h.weather_code[i] || 0) : 0;
-          arr.push({
-            temp: h.temperature_2m ? h.temperature_2m[i] : null,
-            rain: (h.rain ? h.rain[i] : 0) || 0,
-            snow: (h.snowfall ? h.snowfall[i] : 0) || 0,
-            wind: (h.wind_speed_10m ? h.wind_speed_10m[i] : 0) || 0,
-            pressure: h.surface_pressure ? h.surface_pressure[i] : null,
-            prob: (h.precipitation_probability ? h.precipitation_probability[i] : 0) || 0,
-            code: code, desc: decodeWeatherCode(code).desc
-          });
-        }
-        WXM.fetchData[fi] = arr;
-        renderWxHour();
-      }).catch(function () {});
-    });
-  }
-
-  function wxWindColor(w) {
-    if (w == null) return '#a78bfa';
-    if (w < 10) return '#c4b5fd';
-    if (w < 20) return '#a78bfa';
-    if (w < 30) return '#7c3aed';
-    return '#5b21b6';
-  }
-  function wxPressureColor(p) {
-    if (p == null) return '#34d399';
-    if (p < 990) return '#059669';
-    if (p < 1005) return '#10b981';
-    if (p < 1018) return '#34d399';
-    return '#6ee7b7';
-  }
-  // Стиль ячейки по активным слоям: осадки → температура → ветер → давление
-  // Дождь/снег НЕ меняют цвет ячеек — осадки показаны отдельным облачным слоем
-  // (анимированный радар RainViewer, pane wxradar, z-index 450) поверх ячеек,
-  // как отображение дождя в Яндекс.Карте. Цвет ячейки = только температура/ветер/давление.
-  // Стиль квадрата сетки. Приоритет заливки: дождь > снег > температура.
-  // Ветер отдельной анимацией частиц (updateWxParticles), давление удалено.
-  function regionStyle(rec) {
-    if (WXM.layers.snow && rec && rec.snow > 0) return { fill: '#94a3b8', op: 0.32 };
-    if (WXM.layers.temp && rec && rec.temp != null) return { fill: tempColor(rec.temp), op: 0.5 };
-    return { fill: '#3b82f6', op: 0.12 };
-  }
-
-  // Отрисовка: окантовки Минск+Минский район + ячейки сетки + метки
-  // Клик по карте: показать погоду в точке (ближайшая fetch-точка, текущий час).
-  // Формат: иконка сверху, значение снизу — одинаково для всех параметров (дождь/снег и т.д.).
-  function wxPopItem(ic, val, col) {
-    return '<div class="wx-pop-item"><span class="wx-pop-ic">' + ic + '</span><span class="wx-pop-val" style="color:' + col + '">' + val + '</span></div>';
-  }
-  function showWxPointData(latlng) {
-    if (!WXM || !WXM.map) return;
-    var lat = latlng.lat, lng = latlng.lng, bi = 0, bd = 1e18;
-    for (var i = 0; i < WX_FETCH.length; i++) {
-      var d = (WX_FETCH[i][0] - lat) * (WX_FETCH[i][0] - lat) + (WX_FETCH[i][1] - lng) * (WX_FETCH[i][1] - lng);
-      if (d < bd) { bd = d; bi = i; }
-    }
-    var rec = WXM.fetchData[bi] ? WXM.fetchData[bi][WXM.hour] : null;
-    var html = '<div class="wx-pop">';
-    if (!rec) {
-      html += '<div class="wx-pop-empty">Нет данных в этой точке</div>';
-    } else {
-      html += wxPopItem('🌡', rec.temp != null ? Math.round(rec.temp) + '°' : '—', rec.temp != null ? tempColor(rec.temp) : '#94a3b8');
-      html += wxPopItem('🌧', rec.rain > 0 ? (Math.round(rec.rain * 10) / 10) + '' : '0', '#38bdf8');
-      html += wxPopItem('❄', rec.snow > 0 ? (Math.round(rec.snow * 10) / 10) + '' : '0', '#94a3b8');
-      html += wxPopItem('💨', Math.round(rec.wind) + '', '#a78bfa');
-    }
-    html += '</div>';
-    window.L.popup({ className: 'wx-popup', closeButton: true, offset: [0, -4] }).setLatLng(latlng).setContent(html).openOn(WXM.map);
-  }
-
-  // IDW-интерполяция: плавный градиент температуры/осадков по всем точкам данных
-  function interpRec(lat, lng, h) {
-    if (!WXM.fetchData) return null;
-    var sw = 0, tn = 0, rn = 0, sn = 0, wn = 0, cnt = 0, bc = 0, bd = 1e18;
-    for (var i = 0; i < WX_FETCH.length; i++) {
-      var fd = WXM.fetchData[i] ? WXM.fetchData[i][h] : null;
-      if (!fd) continue;
-      var dl = WX_FETCH[i][0] - lat, dg = WX_FETCH[i][1] - lng;
-      var d2 = dl * dl + dg * dg;
-      if (d2 < 1e-10) d2 = 1e-10;
-      var w = 1 / d2;
-      sw += w;
-      if (fd.temp != null) tn += fd.temp * w;
-      rn += (fd.rain || 0) * w;
-      sn += (fd.snow || 0) * w;
-      wn += (fd.wind || 0) * w;
-      if (d2 < bd) { bd = d2; bc = fd.code || 0; }
-      cnt++;
-    }
-    if (cnt === 0) return null;
-    return { temp: sw ? tn / sw : null, rain: sw ? rn / sw : 0, snow: sw ? sn / sw : 0, wind: sw ? wn / sw : 0, code: bc };
-  }
-
-  function renderWxHour() {
-    if (!WXM || !WXM.map) return;
-    var map = WXM.map, h = WXM.hour;
-    if (!WXM.regionBuilt) {
-      WXM.regionGroup.clearLayers();
-      WX_REGIONS.forEach(function (r) {
-        WXM.regionGroup.addLayer(window.L.polygon(r.border, { color: '#0ea5e9', weight: 4, opacity: 0.95, fill: false, lineJoin: 'round', className: 'wx-region-outline', interactive: false }));
-      });
-      WXM.regionBuilt = true;
-    }
-    // Мелкие квадраты сетки: создаём ОДИН РАЗ, затем setStyle на тех же элементах →
-    // CSS-transition (.wx-g-cell { transition: fill .8s }) плавно меняет цвет температуры.
-    if (!WXM.cellLayers) {
-      WXM.cellLayers = [];
-      WX_CELLS.forEach(function (c) {
-        var rect = window.L.polygon(c.border, { pane: 'wxcells', stroke: false, fillColor: '#3b82f6', fillOpacity: 0, className: 'wx-g-cell', lineJoin: 'miter', interactive: false });
-        WXM.cellGroup.addLayer(rect);
-        WXM.cellLayers.push({ rect: rect, fi: c.fi, border: c.border, lat: c.lat, lng: c.lng });
-      });
-    }
-    WXM.cellLayers.forEach(function (cl) {
-      var rec = interpRec(cl.lat, cl.lng, h);
-      var fill = (rec && rec.temp != null) ? tempColor(rec.temp) : '#3b82f6';
-      var op = (rec && rec.temp != null) ? 0.7 : 0;
-      cl.rect.setStyle({ fillColor: fill, fillOpacity: op });
-    });
-    WXM.labelGroup.clearLayers(); // меток нет — данные по клику
-    WXM.stormGroup.clearLayers();
-    for (var fi in WXM.fetchData) {
-        var sr = WXM.fetchData[fi][h];
-        if (sr && sr.code >= 95) {
-          var sp = WX_FETCH[parseInt(fi, 10)];
-          WXM.stormGroup.addLayer(window.L.circle([sp[0], sp[1]], { radius: 7500, pane: 'wxstorm', color: '#1e3a8a', weight: 2, opacity: 0.7, fillColor: '#1e3a8a', fillOpacity: 0.4, className: 'wx-storm-circle', interactive: false }));
-      }
-    }
-  }
-
-  // Общий слой частиц поверх квадратов: дождь (капли), снег (снежинки), ветер (полосы).
-  // Ветер — общий слой полос по всей карте (дождь/снег теперь per-cell).
-  function updateWxParticles(wind) {
-    var box = document.getElementById('wx-particles');
-    if (!box) return;
-    if (!wind) { box.style.display = 'none'; box.innerHTML = ''; return; }
-    box.style.display = 'block';
-    var html = '';
-    for (var k = 0; k < 16; k++) html += '<span class="wx-p-wind" style="top:' + (Math.random() * 100).toFixed(1) + '%;animation-delay:-' + (Math.random() * 3).toFixed(2) + 's;animation-duration:' + (1.6 + Math.random() * 2).toFixed(2) + 's"></span>';
-    box.innerHTML = html;
-  }
-
-  // Капли дождя / снежинки — строго ВНУТРИ квадратов с дождём/снегом (крупные, видимые).
-  // Только видимые квадраты и при зуме >= 11 (иначе ячейки слишком мелкие).
-  function renderWxCellParticles(rain, snow) {
-    if (!WXM || !WXM.map || !WXM.dropGroup) return;
-    WXM.dropGroup.clearLayers();
-    if ((!rain && !snow) || WXM.map.getZoom() < 11) return;
-    var map = WXM.map, h = WXM.hour, view = map.getBounds();
-    var added = 0;
-    WXM.cellLayers.forEach(function (cl) {
-      if (added >= 50) return;            // лимит для производительности
-      var rec = WXM.fetchData[cl.fi] ? WXM.fetchData[cl.fi][h] : null;
-      if (!rec) return;
-      var type = (rain && rec.rain > 0) ? 'rain' : ((snow && rec.snow > 0) ? 'snow' : null);
-      if (!type) return;
-      var b = cl.rect.getBounds();
-      if (!view.intersects(b)) return;            // только квадраты в видимой области
-      var nw = map.latLngToContainerPoint(b.getNorthWest());
-      var se = map.latLngToContainerPoint(b.getSouthEast());
-      var w = Math.max(6, Math.abs(se.x - nw.x)), hh = Math.max(6, Math.abs(se.y - nw.y));
-      var n = 1;
-      var html = '<div class="wx-cdrop wx-cdrop-' + type + '">';
-      for (var i = 0; i < n; i++) {
-        if (type === 'rain') {
-          html += '<span class="wx-drop" style="left:' + Math.round(Math.random() * 100) + '%;animation-delay:-' + (Math.random() * 0.8).toFixed(2) + 's;animation-duration:' + (0.5 + Math.random() * 0.4).toFixed(2) + 's"></span>';
-        } else {
-          html += '<span class="wx-flake" style="left:' + Math.round(Math.random() * 100) + '%;animation-delay:-' + (Math.random() * 3).toFixed(2) + 's;animation-duration:' + (2 + Math.random() * 2).toFixed(2) + 's"></span>';
-        }
-      }
-      html += '</div>';
-      WXM.dropGroup.addLayer(window.L.marker(b.getCenter(), { icon: window.L.divIcon({ html: html, className: '', iconSize: [w, hh], iconAnchor: [w / 2, hh / 2] }), interactive: false, keyboard: false, zIndexOffset: 550 }));
-      added++;
-    });
-  }
-
-  function wxValRow(ic, val, col) {
-    return '<span class="wx-cl-row" style="color:' + col + '">' + ic + val + '</span>';
-  }
   function renderDashboard() {
     // Для админа: фильтр по участку (null = все участки)
     var dashFilterArea = S.dashArea;
@@ -7551,7 +7103,7 @@
     var html = '<div style="height:calc(100vh - 62px);display:flex;flex-direction:column;background:#e8eef3;position:relative;z-index:0">';
     html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap;flex:0 0 auto">';
     html += '<div><div style="font-size:14px;font-weight:800;color:var(--ink)">Карта объектов</div>';
-    html += '<div class="sub" style="font-size:11.5px">Точки: ' + withCoords.length + ' · Области: ' + withPoly.length + (onlyPoly.length ? ' (только область: ' + onlyPoly.length + ')' : '') + ' · нажмите на точку или область · сборка 21.09-14</div></div>';
+    html += '<div class="sub" style="font-size:11.5px">Точки: ' + withCoords.length + ' · Области: ' + withPoly.length + (onlyPoly.length ? ' (только область: ' + onlyPoly.length + ')' : '') + ' · нажмите на точку или область · сборка 21.09-21</div></div>';
     html += '<div style="margin-left:auto;display:flex;gap:12px;font-size:11px;color:var(--muted);flex-wrap:wrap">';
     html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2563eb;margin-right:4px"></span>ГРП</span>';
     html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#7c3aed;margin-right:4px"></span>ШРП</span>';
@@ -16273,10 +15825,9 @@
     var html = '<div style="height:calc(100vh - 62px);display:flex;flex-direction:column;background:#e8eef3;position:relative;z-index:0">';
     html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap;flex:0 0 auto">';
     html += '<div><div style="font-size:14px;font-weight:800;color:var(--ink)">🌧 Тест погодный — карта осадков</div>';
-    html += '<div class="sub" style="font-size:11.5px">Осадки на СЕГОДНЯ, все 24 часа (00:00–23:00): радар RainViewer за последние 2 часа + модель Open-Meteo на остальные часы · дождь и СНЕГ (снег — бело-голубые тона) · клик по карте — погода в точке на выбранный час · сборка 21.09-14</div></div>';
+    html += '<div class="sub" style="font-size:11.5px">Осадки за все 24 часа сегодняшнего дня: ТОЛЬКО модель Open-Meteo (ERA5 архив для прошлых часов + DWD ICON-EU для будущих) · дождь и СНЕГ (снег — бело-голубые тона) · клик по карте — погода в точке на выбранный час · сборка 21.09-22</div></div>';
     html += '<div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
     html += '<span id="wxt-label" style="font-size:12px;font-weight:700;color:var(--blue)">загрузка…</span>';
-    html += '<a class="btn sm" target="_blank" rel="noopener" href="https://yandex.ru/pogoda/ru/minsk/maps/nowcast?ll=27.5684_53.899&z=11" style="background:#c8102e;border-color:#c8102e;color:#fff" title="Официальная карта осадков Яндекса — на их сайте (встроить в наш без платного ключа нельзя)">↗ Яндекс.Осадки</a>';
     html += '</div></div>';
     html += '<div id="wxt-map" style="flex:1;min-height:0;position:relative">';
     html += '<div id="wxt-mapbox" style="position:absolute;inset:0"></div>';
@@ -16287,7 +15838,7 @@
     html += '<div><span style="display:inline-block;width:18px;height:0;border-top:3px dashed #2563eb;vertical-align:middle;margin-right:6px"></span>Минский район</div>';
     html += '<div style="margin-top:6px;display:flex;align-items:center;gap:6px"><span style="min-width:34px">Дождь</span><span style="flex:1;height:9px;border-radius:4px;background:linear-gradient(90deg,#88ddee,#00a3e0,#005588,#ffee00,#ff8100,#c10000)"></span></div>';
     html += '<div style="display:flex;align-items:center;gap:6px"><span style="min-width:34px">Снег</span><span style="flex:1;height:9px;border-radius:4px;background:linear-gradient(90deg,#b8f8ff,#7fbfff,#4888ff,#0028ff)"></span></div>';
-    html += '<div style="margin-top:4px;color:#94a3b8;font-size:10px">радар — последние 2 часа, остальные часы — модель Open-Meteo</div>';
+    html += '<div style="margin-top:4px;color:#94a3b8;font-size:10px">данные Open-Meteo · все 24 часа</div>';
     html += '</div>';
     // нижняя панель: play + время + ползунок на 24 часа сегодняшнего дня
     html += '<div id="wxt-bar" style="position:absolute;left:12px;right:12px;bottom:12px;z-index:1000;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 14px 21px;display:flex;align-items:center;gap:12px">';
@@ -16304,15 +15855,13 @@
   }
 
   /* ===== ТЕСТ ПОГОДНЫЙ: карта осадков на все 24 часа сегодняшнего дня =====
-     Часы 00:00–23:00: где есть кадр радара RainViewer (последние 2 часа,
-     ±20 минут от HH:00; для текущего часа — самый свежий кадр) — показываем
-     радарные тайлы; остальные часы — поле осадков из модели Open-Meteo
-     (сетка 7×7 точек по Минску и Минскому райку, круги-пятна с градиентом
-     через ymSvgLayer, цвет: дождь/снег по интенсивности). Клик по карте —
+     Только Open-Meteo: ERA5 архив для прошедших часов + DWD ICON-EU для будущих.
+     Сетка 16×16 точек по Минску и Минскому району, круги-пятна с градиентом
+     через ymSvgLayer, цвет: дождь/снег по интенсивности. Клик по карте —
      DOM-окошко с погодой в точке на выбранный час (Open-Meteo, без ключа).
      Границы Минска и Минского района — линии (OSM). Никаких балунов
      Яндекс.Карт — только DOM-элементы. */
-  var WXT = { map: null, frames: [], hours: [], selH: -1, layer: null, svg: null, om: null, timer: null, playTimer: null, ticksBuilt: false };
+  var WXT = { map: null, selH: -1, svg: null, om: null, timer: null, playTimer: null, ticksBuilt: false };
   function wxtTodayStr() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function wxtHourTime(h) { return new Date(wxtTodayStr() + 'T' + String(h).padStart(2, '0') + ':00:00').getTime(); }
   function initWxTestMap() {
@@ -16337,6 +15886,7 @@
             if (!ce || !document.body.contains(ce)) {
               if (WXT.svg) { try { WXT.svg.destroy(); } catch (e) {} WXT.svg = null; }
               WXT.map.destroy(); WXT.map = null;
+              WXT.ticksBuilt = false;
             }
           } catch (e) { WXT.map = null; }
         }
@@ -16388,101 +15938,97 @@
     WXT.timer = setInterval(function () {
       if (!document.getElementById('wxt-map')) { clearInterval(WXT.timer); return; }
       wxtLoad();
-    }, 10 * 60 * 1000); // обновление радара и модели каждые 10 минут
+    }, 30 * 60 * 1000); // обновление Open-Meteo каждые 30 минут
   }
   function wxtLoad() {
-    // 1) кадры радара RainViewer (последние 2 часа)
-    fetch('https://api.rainviewer.com/public/weather-maps.json').then(function (r) { return r.json(); }).then(function (j) {
-      var frames = [];
-      try {
-        if (j && j.radar && j.radar.past) j.radar.past.forEach(function (f) { frames.push({ time: f.time * 1000, path: f.path, fc: false }); });
-        if (j && j.radar && j.radar.nowcast) j.radar.nowcast.forEach(function (f) { frames.push({ time: f.time * 1000, path: f.path, fc: true }); });
-      } catch (e) {}
-      WXT.frames = frames;
-      wxtCacheSave(); // копим реальные кадры по часам на весь день
-      wxtRebuildHours();
-      if (WXT.selH < 0) WXT.selH = new Date().getHours(); // по умолчанию — текущий час
-      wxtShowHour(WXT.selH);
-    }).catch(function () {
-      if (WXT.selH < 0) { WXT.selH = new Date().getHours(); wxtShowHour(WXT.selH); }
-      var l1 = document.getElementById('wxt-label');
-      if (l1 && !WXT.frames.length) l1.textContent = 'нет связи с RainViewer';
-    });
-    // 2) модель Open-Meteo на сегодня по сетке (остальные часы суток)
+    // Только Open-Meteo: ERA5 архив (прошлое) + DWD ICON-EU (будущее)
+    if (WXT.selH < 0) WXT.selH = new Date().getHours(); // по умолчанию — текущий час
     wxtLoadOm();
   }
-  /* Кэш РЕАЛЬНЫХ кадров радара: страница докачивает кадры каждые 10 минут —
-     за день в localStorage накапливаются настоящие радар-кадры по часам,
-     и прошедшие часы показывают фактические осадки, а не модель. */
+  /* Кэш радара больше не используется — оставлен пустой stub для совместимости
+     (если в старых вкладках браузера есть localStorage записи — просто игнорируем). */
   var WXT_CACHE_KEY = 'smartplan_wx_radar_cache';
-  function wxtCacheHours() {
-    try {
-      var c = JSON.parse(localStorage.getItem(WXT_CACHE_KEY) || 'null');
-      if (!c || c.date !== wxtTodayStr()) return {};
-      return c.hours || {};
-    } catch (e) { return {}; }
-  }
-  function wxtCacheSave() {
-    try {
-      var hours = wxtCacheHours();
-      WXT.frames.forEach(function (f) {
-        var h = new Date(f.time).getHours();
-        var cur = hours[h];
-        if (!cur || Math.abs(f.time - wxtHourTime(h)) < Math.abs(cur.time - wxtHourTime(h))) hours[h] = { time: f.time, path: f.path };
-      });
-      localStorage.setItem(WXT_CACHE_KEY, JSON.stringify({ date: wxtTodayStr(), hours: hours }));
-    } catch (e) {}
-  }
-  /* сопоставить часы сегодняшнего дня с кадрами радара (±20 минут от HH:00) */
-  function wxtRebuildHours() {
-    var hours = [];
-    for (var h = 0; h < 24; h++) hours.push({ frame: null });
-    if (WXT.frames.length) {
-      var nowH = new Date().getHours();
-      var lastPast = 0;
-      WXT.frames.forEach(function (f, i) { if (!f.fc) lastPast = i; });
-      if (hours[nowH]) hours[nowH].frame = WXT.frames[lastPast]; // текущий час — самый свежий кадр
-      var cached = wxtCacheHours();
-      for (var h2 = 0; h2 < 24; h2++) {
-        if (h2 === nowH) continue;
-        var t = wxtHourTime(h2);
-        var best = null, bestD = 20 * 60 * 1000;
-        WXT.frames.forEach(function (f) {
-          var d = Math.abs(f.time - t);
-          if (d < bestD) { bestD = d; best = f; }
-        });
-        hours[h2].frame = best || (cached[h2] ? { time: cached[h2].time, path: cached[h2].path, fc: false } : null); // живой кадр → кэш дня
-      }
-    }
-    WXT.hours = hours;
-  }
+  function wxtCacheHours() { return {}; }
   /* сетка 7×7 по Минску и Минскому райку → Open-Meteo, осадки на сегодня по часам */
   function wxtLoadOm() {
-    var pts = [];
-    for (var la = 53.65; la <= 54.22; la += 0.07) for (var ln = 27.05; ln <= 27.96; ln += 0.09) pts.push([+la.toFixed(2), +ln.toFixed(2)]); // 9×11 = 99 точек, шаг ~6-8 км
-    var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + pts.map(function (p) { return p[0]; }).join(',') +
-      '&longitude=' + pts.map(function (p) { return p[1]; }).join(',') +
-      '&hourly=precipitation,snowfall&past_days=1&forecast_days=1&timezone=Europe%2FMinsk';
-    fetch(url).then(function (r) { return r.json(); }).then(function (j) {
-      var arr = Array.isArray(j) ? j : [j];
-      if (!arr.length || !arr[0].hourly) return;
-      var idx0 = (arr[0].hourly.time || []).indexOf(wxtTodayStr() + 'T00:00');
-      if (idx0 === -1) return;
+    // 10 широт × 10 долгот = 100 точек сетки. Open-Meteo возвращает массив из
+    // 100 объектов, у каждого свой .hourly.time (одинаковой длины) и
+    // .hourly.precipitation/.hourly.snowfall. Это даёт сетку 10×10 для карты.
+    // 16×16 = 256 точек (в 2.56 раза больше 10×10), шаг ~2.5 км,
+    // покрытие Минска и Минского района. Радиус пятен уменьшен до 3.25 км
+    // для плотного перекрытия без крупных перетеканий.
+    var lats = [];
+    for (var la_i = 0; la_i < 16; la_i++) lats.push(+(53.65 + la_i * 0.038).toFixed(3));
+    var lngs = [];
+    for (var ln_i = 0; ln_i < 16; ln_i++) lngs.push(+(27.05 + ln_i * 0.059).toFixed(3));
+    var flatLats = [], flatLngs = [], pts = [];
+    for (var li = 0; li < lats.length; li++) for (var ki = 0; ki < lngs.length; ki++) {
+      flatLats.push(lats[li]); flatLngs.push(lngs[ki]); pts.push([lats[li], lngs[ki]]);
+    }
+    var today = wxtTodayStr();
+    var nowH = new Date().getHours();
+
+    function applyResults(histArr, fcArr) {
+      var histIdx = (histArr[0].hourly.time || []).indexOf(today + 'T00:00');
+      var fcIdx = (fcArr[0].hourly.time || []).indexOf(today + 'T00:00');
+      if (histIdx === -1 || fcIdx === -1) { fallback(); return; }
       var pr = [], sf = [];
       for (var h = 0; h < 24; h++) {
+        var src = (h <= nowH) ? histArr : fcArr;
+        var idx = (h <= nowH) ? histIdx : fcIdx;
         var row = [], rowS = [];
-        for (var i = 0; i < arr.length; i++) {
-          var hh = arr[i].hourly;
-          row.push(+((hh.precipitation || [])[idx0 + h] || 0));
-          rowS.push(+((hh.snowfall || [])[idx0 + h] || 0));
+        for (var i = 0; i < src.length; i++) {
+          var hr = src[i] && src[i].hourly;
+          if (!hr || !hr.time || !hr.time[idx + h]) continue;
+          row.push(+((hr.precipitation || [])[idx + h] || 0));
+          rowS.push(+((hr.snowfall || [])[idx + h] || 0));
         }
         pr.push(row); sf.push(rowS);
       }
-      WXT.om = { points: pts, pr: pr, sf: sf };
-      wxtShowHour(WXT.selH < 0 ? new Date().getHours() : WXT.selH); // перерисовать час, ждавший данных
-    }).catch(function () {});
+      WXT.om = { points: pts, pr: pr, sf: sf, source: 'archive+icon' };
+      wxtShowHour(WXT.selH < 0 ? nowH : WXT.selH);
+    }
+
+    function fallback() {
+      var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + flatLats.join(',') +
+        '&longitude=' + flatLngs.join(',') +
+        '&hourly=precipitation,snowfall&past_days=1&forecast_days=1&timezone=Europe%2FMinsk';
+      fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+        var arr = Array.isArray(j) ? j : [j];
+        if (!arr.length || !arr[0].hourly) return;
+        var idx0 = (arr[0].hourly.time || []).indexOf(today + 'T00:00');
+        if (idx0 === -1) return;
+        var pr = [], sf = [];
+        for (var h = 0; h < 24; h++) {
+          var row = [], rowS = [];
+          for (var i = 0; i < arr.length; i++) {
+            var hr = arr[i] && arr[i].hourly;
+            if (!hr || !hr.time || !hr.time[idx0 + h]) continue;
+            row.push(+((hr.precipitation || [])[idx0 + h] || 0));
+            rowS.push(+((hr.snowfall || [])[idx0 + h] || 0));
+          }
+          pr.push(row); sf.push(rowS);
+        }
+        WXT.om = { points: pts, pr: pr, sf: sf, source: 'forecast' };
+        wxtShowHour(WXT.selH < 0 ? nowH : WXT.selH);
+      });
+    }
+
+    var histUrl = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + flatLats.join(',') +
+      '&longitude=' + flatLngs.join(',') +
+      '&hourly=precipitation,snowfall&start_date=' + today + '&end_date=' + today + '&timezone=Europe%2FMinsk';
+    var fcUrl = 'https://api.open-meteo.com/v1/dwd-icon?latitude=' + flatLats.join(',') +
+      '&longitude=' + flatLngs.join(',') +
+      '&hourly=precipitation,snowfall&past_hours=0&forecast_hours=24&timezone=Europe%2FMinsk';
+    Promise.all([
+      fetch(histUrl).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+      fetch(fcUrl).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+    ]).then(function (r) {
+      if (!r[0] || !r[1]) { fallback(); return; }
+      applyResults(r[0], r[1]);
+    }).catch(function () { fallback(); });
   }
-  /* цвет пятна по интенсивности: дождь (мм/ч) и снег (см/ч) — как легенда */
+
   function wxtOmColor(pr, sf) {
     if (sf > 0) {
       if (sf < 0.25) return { c: '#b8f8ff', o: 0.4 };
@@ -16501,13 +16047,32 @@
     }
     return null;
   }
+  /* Проверка: точка внутри полигона (ray casting) */
+  function pointInPolygon(lat, lng, poly) {
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if (((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  /* Проверка: точка внутри любого полигона из массива */
+  function pointInAnyPolygon(lat, lng, polygons) {
+    for (var p = 0; p < polygons.length; p++) {
+      if (pointInPolygon(lat, lng, polygons[p])) return true;
+    }
+    return false;
+  }
   function wxtDrawOmHour(h) {
     if (!WXT.svg || !WXT.om || !WXT.om.pr[h]) { if (WXT.svg) WXT.svg.set([]); return; }
     var items = [];
     var pt = WXT.om.points, pr = WXT.om.pr[h], sf = WXT.om.sf[h];
+    // Рисуем только точки внутри контура Минского района
     for (var i = 0; i < pt.length; i++) {
       var col = wxtOmColor(pr[i], sf[i]);
-      if (col) items.push({ kind: 'blob', lat: pt[i][0], lng: pt[i][1], radiusM: 6500, color: col.c, opacity: col.o, gid: i }); // 6,5 км: под шаг сетки 6-8 км, сплошное поле
+      if (col && pointInAnyPolygon(pt[i][0], pt[i][1], WXT_MINRAY_LINES)) {
+        items.push({ kind: 'blob', lat: pt[i][0], lng: pt[i][1], radiusM: 3250, color: col.c, opacity: col.o, gid: i });
+      }
     }
     WXT.svg.set(items);
   }
@@ -16515,47 +16080,24 @@
     if (WXT.selH < 0 && h == null) return;
     h = ((Math.round(h) % 24) + 24) % 24;
     WXT.selH = h;
-    var hr = (WXT.hours || [])[h] || {};
-    var nowH = new Date().getHours();
-    var src = 'none';
-    // убрать прежний слой радара
-    if (WXT.map) { try { if (WXT.layer) { WXT.map.layers.remove(WXT.layer); WXT.layer = null; } } catch (e) {} }
-    if (hr.frame && WXT.map) {
-      src = 'radar';
-      try {
-        // RainViewer отдаёт радар только до зума 7: выше сервер возвращает заглушку
-        // «zoom level not supported». Тайлы всегда с зума ≤7 (512px), выше — растяжка
-        // (getTileUrl/getTileSize, паттерн из доки ymaps.Layer). /2/1_1.png: схема 2,
-        // сглаживание 1, СНЕГ отдельными цветами 1.
-        var rp = hr.frame.path;
-        WXT.layer = new ymaps.Layer('', { tileTransparent: true });
-        WXT.layer.getTileUrl = function (n, zoom) {
-          var z = Math.floor(zoom);
-          var k = Math.max(0, Math.min(z - 7, 2));
-          var g = z - k, u = Math.min(g, 7), d = Math.pow(2, g - u);
-          return 'https://tilecache.rainviewer.com' + rp + '/512/' + u + '/' + Math.floor(n[0] / d) + '/' + Math.floor(n[1] / d) + '/2/1_1.png';
-        };
-        WXT.layer.getTileSize = function (zoom) {
-          var z = Math.floor(zoom);
-          var k = Math.max(0, Math.min(z - 7, 2));
-          var s = 256 * Math.pow(2, k);
-          return [s, s];
-        };
-        WXT.layer.getZoomRange = function () { return Promise.resolve([0, 21]); };
-        WXT.map.layers.add(WXT.layer);
-      } catch (e) { src = 'none'; }
-    }
+
+    // Open-Meteo — ТОЛЬКО прогноз модели (без радара)
     if (WXT.svg) {
-      if (src === 'radar') WXT.svg.set([]);
-      else if (WXT.om && WXT.om.pr[h]) { src = 'om'; wxtDrawOmHour(h); }
+      if (WXT.om && WXT.om.pr[h]) { wxtDrawOmHour(h); }
       else WXT.svg.set([]);
-    } else if (src !== 'radar' && WXT.om && WXT.om.pr[h]) src = 'om';
+    }
+
+    // Подпись
     var lbl = document.getElementById('wxt-label');
     if (lbl) {
       var hh = String(h).padStart(2, '0') + ':00';
-      lbl.textContent = src === 'radar' ? hh + ' · Радар RainViewer'
-        : src === 'om' ? hh + (h > nowH ? ' · Прогноз Open-Meteo' : ' · Open-Meteo (модель)')
-        : hh + ' · загрузка…';
+      var omSrc = (WXT.om && WXT.om.source) || '—';
+      var parts = ['Час: ' + hh];
+      if (omSrc === 'archive+icon') parts.push('архив прошлое + ICON-EU будущее');
+      else if (omSrc === 'archive') parts.push('Архив Open-Meteo');
+      else if (omSrc === 'forecast') parts.push('Прогноз Open-Meteo');
+      else parts.push('Open-Meteo (' + omSrc + ')');
+      lbl.textContent = parts.join(' · ');
     }
     wxtSyncBar();
   }
@@ -17107,6 +16649,13 @@
     setInterval(loadWeatherForecast, 3600000);
     // Инициализация попапа погоды
     initWeatherPopup();
+    // Кнопка «💾 Сохранить всё» в топбаре + авто-сохранение каждую 1 минуту
+    // (включая годовые графики — все 7 разделов sync.js + резервный снапшот)
+    try {
+      if (window.SP_SAVE_ALL && typeof window.SP_SAVE_ALL.init === 'function') {
+        window.SP_SAVE_ALL.init();
+      }
+    } catch (e) { console.error('SP_SAVE_ALL init:', e); }
     // Динамическая синхронизация: 2 сек в календаре, 10 сек в остальных экранах
     function scheduleNextSync() {
       var delay = (S.screen === 'calendar') ? 5000 : 15000;
