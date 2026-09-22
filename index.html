@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartPlan — Планирование · УП «МИНГАЗ»</title>
+  <link rel="manifest" href="root_index/manifest.json">
+  <meta name="theme-color" content="#0f2740">
+  <link rel="icon" type="image/png" sizes="192x192" href="root_index/icon-192.png">
+  <link rel="apple-touch-icon" href="root_index/icon-192.png">
+<style>
+  :root{
+    --navy:#0f2740; --navy2:#16385c; --slate:#1f2d3d; --ink:#1f2937;
+    --bg:#eef2f6; --card:#ffffff; --line:#e2e8f0; --muted:#64748b; --txt:#334155;
+    --panel-2:#f8fafc; --panel-3:#f1f5f9;
+    --blue:#2563eb; --blue-d:#1d4ed8; --green:#16a34a; --green-l:#dcfce7;
+    --yellow:#ca8a04; --yellow-l:#fef9c3; --red:#dc2626; --red-l:#fee2e2;
+    --shadow:0 1px 3px rgba(15,39,64,.08),0 1px 2px rgba(15,39,64,.06);
+    --shadow-lg:0 10px 30px rgba(15,39,64,.12);
+    --radius:12px;
+  }
+  *{box-sizing:border-box}
+  /* ===== Оффлайн-баннер ===== */
+  #net-banner{position:fixed;top:0;left:50%;transform:translate(-50%,-120%);z-index:999990;background:#b45309;color:#fff;font-size:12.5px;font-weight:700;padding:8px 18px;border-radius:0 0 12px 12px;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .3s ease;max-width:92vw;text-align:center}
+  #net-banner.show{transform:translate(-50%,0)}
+  /* ===== Скелетоны (shimmer) ===== */
+  @keyframes skelShimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+  .skel{border-radius:10px;background:linear-gradient(90deg,var(--panel-3) 25%,var(--panel-2) 50%,var(--panel-3) 75%);background-size:800px 100%;animation:skelShimmer 1.3s linear infinite}
+  /* ===== Boot-сплэш (пока грузится приложение) ===== */
+  #boot-splash{position:fixed;inset:0;z-index:999999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .35s ease}
+  #boot-splash.hide{opacity:0;pointer-events:none}
+  #boot-splash img{width:74px;height:74px;border-radius:16px;background:#fff;padding:6px;box-shadow:var(--shadow-lg)}
+  @keyframes bootPulse{0%,100%{opacity:.35}50%{opacity:1}}
+  #boot-splash .boot-txt{font-size:13px;font-weight:700;color:var(--muted);animation:bootPulse 1.4s ease-in-out infinite}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;overscroll-behavior:none}
+  body{
+    font-family:'Segoe UI',Roboto,-apple-system,BlinkMacSystemFont,Arial,sans-serif;
+    background:var(--bg);color:var(--txt);font-size:14px;line-height:1.4;
+  }
+  .app{display:flex;height:100vh;overflow:hidden}
+
+  /* ---------- SIDEBAR ---------- */
+  .sidebar{
+    width:248px;flex:0 0 248px;background:linear-gradient(180deg,var(--navy),var(--navy2));
+    color:#cbd5e1;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  }
+  .brand{display:flex;align-items:center;gap:10px;padding:18px 18px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+  .brand .logo{width:60px;height:60px;border-radius:12px;background:#fff;padding:5px;
+    object-fit:contain;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+  .brand .bt{font-size:15px;font-weight:700;color:#fff;line-height:1.15}
+  .brand .bs{font-size:11px;color:#7dd3fc;letter-spacing:.3px}
+  .nav{padding:12px 10px;flex:1;overflow-y:auto}
+  .nav .grp{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:#64748b;padding:14px 10px 6px}
+  .nav a{
+    display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:9px;color:#cbd5e1;
+    text-decoration:none;cursor:pointer;font-size:13.5px;margin-bottom:2px;transition:.15s;border:1px solid transparent;
+  }
+  .nav a svg{width:18px;height:18px;flex:0 0 18px;opacity:.9}
+  .nav a:hover{background:rgba(255,255,255,.06);color:#fff}
+  .nav a.active{background:rgba(59,130,246,.18);color:#fff;border-color:rgba(96,165,250,.4)}
+  .nav a.active svg{opacity:1}
+  /* Подменю «Графики» — выезжает под «Планирование / Календарь» при наведении */
+  .nav-acc .nav-sub{max-height:0;opacity:0;overflow:hidden;transform:translateY(-6px);
+    transition:max-height .3s cubic-bezier(.4,0,.2,1),opacity .2s ease,transform .28s ease}
+  .nav-acc:hover .nav-sub,.nav-acc.open .nav-sub{max-height:56px;opacity:1;transform:translateY(0)}
+  .nav-sub a{padding:7px 12px 7px 25px;font-size:12.5px;color:#8fa6c4}
+  .nav-sub a svg{width:16px;height:16px;flex:0 0 16px}
+  .nav-sub a.active{color:#fff}
+  /* Тач-устройство (планшет без мыши): подменю «Графики» раскрыто всегда
+     (класс body.touch-ui ставит app.js по (hover:none) и (pointer:coarse)) */
+  body.touch-ui .nav-acc .nav-sub{max-height:56px;opacity:1;transform:none}
+  .nav .badge{margin-left:auto;background:var(--red);color:#fff;font-size:10.5px;font-weight:700;border-radius:20px;padding:1px 7px}
+  .sb-foot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#64748b}
+  .base-sel{padding:10px 16px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
+  .base-lbl{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:#64748b;margin-bottom:5px;font-weight:600}
+  .base-sel select{width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:12px;font-family:inherit;cursor:pointer;font-weight:600;}
+  .base-sel select option{color:var(--ink);background:var(--card);}
+  .base-sel select:focus{outline:none;border-color:rgba(96,165,250,.5)}
+
+  /* ---------- MAIN ---------- */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{
+    background:var(--card);border-bottom:1px solid var(--line);padding:0 22px;height:62px;
+    display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:20;
+  }
+  .topbar h1{font-size:16.5px;font-weight:700;color:var(--ink);margin:0}
+  .topbar .crumb{font-size:12px;color:var(--muted)}
+  .topbar .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);color:var(--ink);
+    padding:8px 13px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;font-family:inherit}
+  .btn:hover{background:#f8fafc;border-color:#cbd5e1}
+  .btn svg{width:16px;height:16px}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  .btn.primary:hover{background:var(--blue-d)}
+  .btn.ghost{background:transparent}
+  .btn.sm{padding:5px 9px;font-size:12px}
+  .btn.ok{background:var(--green);border-color:var(--green);color:#fff}
+  .btn.ok:hover{background:#15803d;border-color:#15803d;color:#fff}
+  .btn.danger{background:var(--red);border-color:var(--red);color:#fff}
+  .btn.danger:hover{background:#b91c1c;border-color:#b91c1c;color:#fff}
+  .usr{display:flex;align-items:center;gap:9px;padding-left:6px}
+  .usr .av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#64748b,#334155);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+  .usr .un{font-size:12.5px;font-weight:600;color:var(--ink);line-height:1.1}
+  .usr .ur{font-size:11px;color:var(--muted)}
+
+  /* ---------- VIEW ---------- */
+  #view{padding:22px;flex:1;overflow-y:auto;overscroll-behavior:contain}
+  /* Яндекс-карты: высота внутренних панелей карты — 96% (правка пользователя
+     по замеру в DevTools: панели выше видимой области — области срезались) */
+  ymaps-2-1-79-inner-panes,
+  .ymaps-2-1-79-inner-panes{height:96% !important}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+  .card-h{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .card-h h2{margin:0;font-size:14px;color:var(--ink);font-weight:700}
+  .card-h .sub{font-size:12px;color:var(--muted)}
+  .card-h .spacer{flex:1}
+  .card-b{padding:16px}
+
+  /* ---------- DASHBOARD ---------- */
+  .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:15px 16px;position:relative;overflow:hidden}
+  .kpi .lab{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+  .kpi .val{font-size:27px;font-weight:800;color:var(--ink);margin-top:3px;line-height:1}
+  .kpi .hint{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .kpi .acc{position:absolute;right:-14px;top:-14px;width:62px;height:62px;border-radius:50%;opacity:.12}
+  .dash-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:16px}
+  .wk-drop-on{outline:2px dashed #2563eb !important;outline-offset:4px}
+  .today-mstr{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:9px;margin-top:9px}
+  .today-mstr .dot{width:10px;height:10px;border-radius:50%;flex:0 0 10px}
+  .today-mstr .nm{font-weight:700;color:var(--ink);font-size:13px}
+  .today-mstr .ar{font-size:11px;color:var(--muted)}
+  .today-mstr .meta{margin-left:auto;text-align:right;font-size:12px}
+  .today-mstr .h{font-weight:700}
+  .today-mstr .tag{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:20px;margin-top:3px}
+  .tag.over{background:var(--red-l);color:var(--red)}
+  .tag.ok{background:var(--green-l);color:var(--green)}
+  .taskline{display:flex;gap:8px;font-size:12px;color:var(--txt);margin-top:6px;align-items:center}
+  .taskline .pill{font-size:10.5px;padding:1px 6px;border-radius:5px;background:#eef2f6;color:var(--muted)}
+  .rz-item{display:flex;gap:10px;padding:11px 0;border-bottom:1px dashed var(--line)}
+  .rz-item:last-child{border-bottom:none}
+  .rz-bar{width:4px;border-radius:4px;flex:0 0 4px}
+  .rz-main{flex:1;min-width:0}
+  .rz-t{font-weight:700;color:var(--ink);font-size:13px}
+  .rz-s{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .rz-dl{font-size:11.5px;font-weight:700;white-space:nowrap}
+  .rz-dl.red{color:var(--red)} .rz-dl.yel{color:var(--yellow)}
+  .rings{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .ring{display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--line);border-radius:10px}
+  .ring .ar{font-size:11.5px;color:var(--muted);margin-top:7px;font-weight:600}
+  .empty{color:var(--muted);font-size:13px;padding:18px;text-align:center}
+
+  /* ---------- CALENDAR ---------- */
+  .cal-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .seg{display:inline-flex;background:#e2e8f0;border-radius:9px;padding:3px}
+  .seg button{border:none;background:transparent;padding:6px 14px;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--muted);font-family:inherit}
+  .seg button.on{background:var(--card);color:var(--blue);box-shadow:var(--shadow)}
+  .cal-title{font-size:15px;font-weight:700;color:var(--ink)}
+  .legend{display:flex;gap:12px;font-size:11.5px;color:var(--muted);margin-left:auto;flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .cal-scroll{overflow:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--card)}
+  .cal-grid{display:grid}
+  .gh{position:sticky;top:0;z-index:5;background:#f1f5f9}
+  .gh.corner{position:sticky;left:0;z-index:8}
+  .col-head{text-align:center;padding:8px 4px;font-size:11.5px;color:var(--muted);border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:#f1f5f9}
+  .col-head.corner{display:flex;align-items:center;justify-content:center;text-align:center;font-weight:600;color:var(--ink);font-size:11.5px}
+  .col-head .dn{font-weight:700;color:var(--ink);font-size:14px}
+  .col-head .wd{font-size:10px;text-transform:uppercase}
+  .col-head.today{background:#eff6ff}
+  .col-head.today .dn{color:var(--blue)}
+  .col-head.we{color:#94a3b8}
+  .mname{position:sticky;left:0;z-index:6;background:var(--card);border-right:2px solid var(--line);border-bottom:1px solid var(--line);padding:9px 11px;min-width:170px;display:flex;align-items:center;gap:9px}
+  .mname .dot{width:9px;height:9px;border-radius:50%}
+  .mname .nm{font-weight:700;color:var(--ink);font-size:12.5px;line-height:1.1}
+  .mname .ar{font-size:10.5px;color:var(--muted)}
+  .cell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-height:62px;padding:4px;display:flex;flex-direction:column;gap:4px;background:var(--card);position:relative}
+  .cell.we{background:#fafbfc}
+  .cell.today{background:#f5f9ff}
+  .cell.drop-on{background:#dbeafe!important;outline:2px dashed var(--blue);outline-offset:-3px}
+  .cell.overload{box-shadow:inset 0 0 0 2px var(--red)}
+  .cell .ov-warn{position:absolute;top:2px;right:3px;font-size:9px;font-weight:800;color:#fff;background:var(--red);border-radius:5px;padding:0 4px}
+  .tile{border-radius:6px;padding:4px 6px;font-size:10.5px;line-height:1.2;cursor:grab;background:#eef2f6;border-left:3px solid #94a3b8;position:relative;user-select:none}
+  .tile:active{cursor:grabbing}
+  .tile.dragging{opacity:.4}
+  .tile .tw{font-weight:600;color:var(--ink);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile .th{font-size:9.5px;color:var(--muted)}
+  .tile.t-green{background:var(--green-l);border-left-color:var(--green)}
+  .tile.t-green .tw{color:#14532d}
+  .tile.t-yellow{background:var(--yellow-l);border-left-color:var(--yellow)}
+  .tile.t-yellow .tw{color:#713f12}
+  .tile.t-red{background:var(--red-l);border-left-color:var(--red)}
+  .tile.t-red .tw{color:#7f1d1d}
+  .tile.t-weather{background:#fef3c7!important;border-left-color:#f59e0b!important}
+  .tile.t-weather .tw{color:#92400e!important}
+  .tile.t-done{background:#f1f5f9;border-left-color:#94a3b8;opacity:.7}
+  .tile.t-done .tw{color:#64748b;text-decoration:line-through}
+  .tile .chk{position:absolute;right:3px;top:3px;font-size:10px;color:var(--green)}
+  .tile-chk{position:absolute;right:4px;bottom:4px;z-index:10;cursor:pointer;display:flex;align-items:center;justify-content:center;width:16px;height:16px}
+  .tile-chk input{position:absolute;opacity:0;width:100%;height:100%;cursor:pointer;margin:0}
+  .tile-chk-box{width:15px;height:15px;border:2px solid #94a3b8;border-radius:4px;background:var(--card);transition:.15s;display:flex;align-items:center;justify-content:center;pointer-events:none}
+  .tile-chk input:checked + .tile-chk-box{background:var(--green);border-color:var(--green)}
+  .tile-chk input:checked + .tile-chk-box:after{content:'';width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);margin-bottom:2px}
+  .read-only .tile{cursor:default}
+
+  /* ---------- КОРЗИНА ---------- */
+  .trash-zone{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border:2px dashed #fca5a5;border-radius:10px;color:#dc2626;font-size:12.5px;font-weight:700;transition:.18s;background:var(--card);cursor:default;user-select:none}
+  .trash-zone.drop-active{background:#fee2e2;border-color:var(--red);transform:scale(1.08);box-shadow:0 4px 14px rgba(220,38,38,.25)}
+  .trash-zone svg{transition:.18s}
+
+  /* tooltip */
+  #tip{position:fixed;z-index:200;background:var(--slate);color:#fff;padding:9px 11px;border-radius:8px;font-size:11.5px;max-width:260px;box-shadow:var(--shadow-lg);pointer-events:none;display:none;line-height:1.5}
+  #tip b{color:#7dd3fc}
+
+  /* ---------- MAP ---------- */
+  .map-wrap{display:grid;grid-template-columns:330px 1fr;gap:16px}
+  .mlist{max-height:calc(100vh - 260px);overflow:auto;min-height:300px}
+  .mtask{display:flex;gap:9px;padding:10px 11px;border:1px solid var(--line);border-radius:9px;margin-bottom:8px;cursor:pointer;transition:.12s;background:var(--card)}
+  .mtask-grip{display:flex;align-items:center;color:#cbd5e1;cursor:grab;flex:0 0 14px}
+  .mtask-grip:active{cursor:grabbing}
+  .mtask.drop-above{border-top:3px solid var(--blue)!important;margin-top:5px}
+  .mtask:hover{border-color:var(--blue);background:#f8faff}
+  .mtask.sel{border-color:var(--blue);background:#eff6ff;box-shadow:0 0 0 2px rgba(37,99,235,.18)}
+  .mtask .pin{width:24px;height:24px;border-radius:50%;background:var(--blue);color:#fff;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;flex:0 0 24px}
+  .mtask .mt-t{font-weight:700;color:var(--ink);font-size:12.5px}
+  .mtask .mt-s{font-size:11px;color:var(--muted)}
+  .map-box{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:#dbe4ec;position:relative;display:flex;flex-direction:column}
+    .map-stats{display:flex;gap:8px;padding:10px 12px;background:#f1f5f9;border-bottom:1px solid var(--line);font-size:12px;flex-wrap:wrap}
+  .map-stats b{color:var(--ink)}
+
+  /* ---------- ЗАГРУЗКА КАРТЫ ---------- */
+  .map-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);font-size:13px;background:#e8eef3;text-align:center;padding:20px}
+  .map-spin{width:38px;height:38px;border:4px solid #cbd5e1;border-top-color:var(--blue);border-radius:50%;animation:mspin .8s linear infinite;margin-bottom:14px}
+  @keyframes mspin{to{transform:rotate(360deg)}}
+
+  /* ---------- ВИДЖЕТ МАРШРУТА (iframe Яндекс.Карт по ссылке) ---------- */
+  .route-frame{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;background:#e8eef3}
+  .route-link-panel{position:absolute;left:12px;right:12px;top:12px;z-index:1000;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;border:1px solid var(--line);background:rgba(15,39,64,.92);backdrop-filter:blur(10px);border-radius:12px;padding:10px 14px;color:#e2e8f0;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+  .route-link-panel span{font-size:12.5px;flex:1;min-width:200px}
+  .route-actions{display:flex;gap:8px;align-items:center;margin-left:auto}
+
+  /* ---------- REFERENCES ---------- */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px}
+  .tabs button{border:none;background:transparent;padding:10px 14px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;font-family:inherit}
+  .tabs button.on{color:var(--blue);border-bottom-color:var(--blue)}
+  table.dt{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.dt th{text-align:left;background:#f8fafc;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:9px 11px;border-bottom:1px solid var(--line);font-weight:700}
+  table.dt td{padding:9px 11px;border-bottom:1px solid var(--line);color:var(--txt)}
+  table.dt tr:hover td{background:#f8fafc}
+  .chip{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;background:#eef2f6;color:var(--muted)}
+  .chip.ГРП{background:#dbeafe;color:#1d4ed8}
+  .chip.ШРП{background:#dcfce7;color:#15803d}
+  .chip.ГРС{background:#cffafe;color:#0e7490}
+  .chip.ПГРП{background:#fed7aa;color:#c2410c}
+  .chip.Трасса{background:#fef3c7;color:#b45309}
+  .tree ul{list-style:none;padding-left:18px;margin:4px 0}
+  .tree .grp{font-weight:700;color:var(--ink);font-size:13px;padding:5px 0;display:flex;align-items:center;gap:6px;cursor:pointer}
+  .tree .grp svg{width:14px;height:14px}
+  .tree li.w{padding:6px 0;display:flex;align-items:center;gap:10px;font-size:12.5px;border-bottom:1px dashed var(--line)}
+  .tree .norm{margin-left:auto;color:var(--muted);font-size:12px}
+  .tree .norm b{color:var(--ink)}
+  .imp-box{border:2px dashed #cbd5e1;border-radius:12px;padding:30px;text-align:center;color:var(--muted)}
+  .imp-box .ic{font-size:34px;margin-bottom:8px}
+  .imp-box h3{margin:0 0 4px;color:var(--ink);font-size:15px}
+
+  /* ---------- MODAL ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:flex-start;justify-content:center;z-index:100;padding:40px 16px;overflow:auto}
+  .overlay.show{display:flex}
+  .modal{background:var(--card);border-radius:14px;width:100%;min-width:min(480px,100%);max-width:fit-content;margin:0 auto;box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 80px);transition:max-width .25s ease}
+  .modal-h{display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line);flex-shrink:0}
+  .modal-h h3{margin:0;font-size:15px;color:var(--ink)}
+  .modal-h .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;background:none;border:none}
+  .modal-b{padding:18px;overflow-y:auto;flex:1;min-height:0}
+  .fld{margin-bottom:14px}
+  .fld label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px}
+  /* Образцы цвета области (модалка области + карта рисования) */
+  .zc-sw{width:25px;height:25px;border-radius:50%;border:none;cursor:pointer;padding:0;flex:0 0 auto;box-shadow:inset 0 0 0 1px rgba(15,39,64,.22);transition:transform .12s ease}
+  .zc-sw:hover{transform:scale(1.15)}
+  .zc-sw.on{box-shadow:inset 0 0 0 1px rgba(15,39,64,.22),0 0 0 2px #fff,0 0 0 4px #1d4ed8;transform:scale(1.06)}
+  .zc-custom{width:36px;height:25px;padding:1px 2px;border:1px solid var(--line);border-radius:7px;background:var(--card);cursor:pointer;font-family:inherit}
+  .fld input,.fld select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit;color:var(--ink);background:var(--card)}
+  .fld input:focus,.fld select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+  .calc{background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:11px 13px;font-size:12.5px;color:#1e3a8a;display:flex;flex-direction:column;align-items:center;gap:8px}
+  /* max-width:fit-content у .modal: ширину диктует ТОЛЬКО текст трудозатрат (#f-calc).
+     Инфо-тексты и опции селектов НЕ раздувают модалку:
+     — contain:inline-size — инфо-боксы не вкладывают свою ширину в ширину модалки;
+     — width:0;min-width:100% — селекты рендерятся как обычно (на всю ширину поля),
+       но их вклад в собственную ширину модалки нулевой (иначе Chrome растягивает
+       модалку под самую длинную опцию списка работ). */
+  .modal .calc:not(#f-calc){contain:inline-size}
+  .modal select{width:0;min-width:100%}
+  /* Блок трудозатрат: строки (div) выровнены влево, компактный интервал */
+  #f-calc{align-items:flex-start;gap:4px}
+  .calc b{color:var(--blue-d)}
+  /* Зелёная кнопка «+» — добавить ещё один вид работ в задаче */
+  .work-item{border:1px solid var(--line);border-radius:10px;padding:8px;background:#fbfdff}
+  .work-item .work-row{margin-bottom:6px}
+  .work-row{display:flex;gap:6px;align-items:center}
+  .work-row-new{animation:workRowIn .28s ease}
+  @keyframes workRowIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+  .work-add-btn{flex:0 0 34px;width:34px;height:34px;border:none;border-radius:10px;background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;font-family:inherit;font-size:19px;font-weight:800;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(21,128,61,.35);text-shadow:0 1px 1px rgba(0,0,0,.18);transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
+  .work-add-btn:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 4px 12px rgba(21,128,61,.45)}
+  .work-add-btn:active{transform:scale(.9);filter:brightness(.95)}
+  .modal-f{padding:13px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:9px;background:#f8fafc;flex-shrink:0}
+  /* Строки списка сохранённых графиков (окно «Список графиков») */
+  .gl-row{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid var(--line);border-radius:10px;cursor:pointer;background:var(--card);transition:background .15s,border-color .15s,transform .15s}
+  .gl-row:hover{background:#f1f5f9;border-color:#cbd5e1;transform:translateX(3px)}
+  .gl-row.cur{background:#eff6ff;border-color:#93c5fd}
+  /* Панель инструментов графика — строка под шапкой страницы «Графики» */
+  .gtb{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .gtb .spacer{flex:1}
+  .gt-btn{width:36px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:transparent;cursor:pointer;transition:background .15s,transform .15s;border:1.5px solid var(--ink);color:var(--ink)}
+  .gt-btn svg{width:18px;height:18px;display:block}
+  .gt-btn:hover{transform:translateY(-1px)}
+  .gt-btn:active{transform:scale(.93)}
+  .gt-blue{border-color:#2563eb;color:#2563eb}.gt-blue:hover{background:rgba(37,99,235,.09)}
+  .gt-green{border-color:#16a34a;color:#16a34a}.gt-green:hover{background:rgba(22,163,74,.09)}
+  .gt-amber{border-color:#ca8a04;color:#ca8a04}.gt-amber:hover{background:rgba(202,138,4,.1)}
+  .gt-red{border-color:#dc2626;color:#dc2626}.gt-red:hover{background:rgba(220,38,38,.09)}
+  .gt-cyan{border-color:#0891b2;color:#0891b2}.gt-cyan:hover{background:rgba(8,145,178,.09)}
+  .gt-violet{border-color:#9333ea;color:#9333ea}.gt-violet:hover{background:rgba(147,51,234,.09)}
+  .gt-rose{border-color:#e11d48;color:#e11d48}.gt-rose:hover{background:rgba(225,29,72,.09)}
+  .gt-slate{border-color:#64748b;color:#64748b}.gt-slate:hover{background:rgba(100,116,139,.1)}
+  /* Центр панели графика: сверху год + ответственный, под ними наименование */
+  .gt-mid{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0;justify-content:center}
+  .gt-mid-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+  .gt-name{font-size:13.5px;font-weight:800;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
+  /* Строки объектов в окне «Добавить объекты в график» */
+  .gao-row{display:flex;align-items:center;gap:9px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;transition:background .15s,border-color .15s}
+  .gao-row:hover{background:#f1f5f9;border-color:#cbd5e1}
+  .gao-row.gao-used{opacity:.55;cursor:default}
+  .gao-row.gao-used:hover{background:var(--card);border-color:var(--line)}
+  /* Таблица графика: слева объекты (строки), сверху месяцы года */
+  .gw-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+  .gw-grid{display:grid;grid-template-columns:minmax(240px,1.7fr) repeat(12,minmax(58px,1fr));min-width:940px}
+  .gw-h{background:var(--card);font-size:11.5px;font-weight:800;color:var(--ink);padding:8px 5px;text-align:center;border-bottom:2px solid #cbd5e1;border-left:1px solid var(--line)}
+  .gw-h.gw-corner{text-align:left;border-left:none;padding:8px 11px}
+  .gw-h.gw-corner span{display:block;font-size:10px;color:var(--blue);font-weight:800;letter-spacing:.4px}
+  .gw-h.gw-m{white-space:nowrap}
+  .gw-obj{position:sticky;left:0;z-index:1;display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid var(--line);background:var(--card);font-size:12px;font-weight:600;color:var(--ink)}
+  .gw-obj-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gw-c{border-bottom:1px solid var(--line);border-left:1px solid var(--line);min-height:38px;background:var(--card);cursor:pointer;transition:background .12s;display:flex;align-items:center;justify-content:center}
+  .gd-c{display:flex;align-items:center;justify-content:center}
+  .gw-tris{display:flex;align-items:center;justify-content:center;gap:3px;flex-wrap:wrap}
+  .gw-tri-w{display:inline-flex;cursor:default}
+  /* Всплывающее окно с информацией о работе (наведение на треугольник) */
+  #gw-tip{position:fixed;z-index:9999;background:var(--slate);color:#fff;font-size:12px;font-weight:500;padding:9px 12px;border-radius:9px;pointer-events:none;box-shadow:var(--shadow-lg);max-width:320px;white-space:normal;line-height:1.5;opacity:0;transform:translateY(3px);transition:opacity .15s,transform .15s}
+  #gw-tip.show{opacity:1;transform:translateY(0)}
+  #gw-tip b{color:#7dd3fc}
+  .gl-tri{flex:0 0 auto;display:inline-flex}
+  .gw-leg-row input[type=color]{width:36px;height:26px;padding:0;border:1px solid var(--line);border-radius:6px;background:var(--card);cursor:pointer;margin-left:auto;flex:0 0 auto}
+  .gpr-obj{border:1px solid var(--line);border-radius:10px;background:var(--card);overflow:hidden}
+  .gpr-obj-h{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f8fafc;border-bottom:1px solid var(--line)}
+  .gpr-obj-nm{font-size:12.5px;font-weight:700;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gpr-past{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap;flex:0 0 auto}
+  .gpr-past input{width:14px;height:14px;cursor:pointer;accent-color:#2563eb;margin:0;flex:0 0 auto}
+  .gpr-works{padding:8px;display:flex;flex-direction:column;gap:6px}
+  .gpr-wrow,.gpr-cols{display:grid;grid-template-columns:minmax(170px,1.7fr) 78px 68px 128px 30px;gap:6px;align-items:center;min-width:0}
+  .gpr-cols{padding:0 18px 4px;font-size:10.5px;font-weight:800;color:var(--muted)}
+  .gpr-cols span{text-align:center}
+  .gpr-cols span:first-child{text-align:left}
+  .gpr-del{width:28px;height:28px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--red);font-size:15px;font-weight:800;cursor:pointer;line-height:1;padding:0;flex:0 0 auto}
+  .gpr-empty{font-size:11.5px;color:var(--muted);padding:2px 2px}
+  /* Карта объектов: скрыть нижние ссылки «Открыть в Яндекс.Картах» и «Создать свою карту» */
+  [class*="copyrights-promo"],[class*="map-copyrights-promo"]{display:none!important}
+  .gpr-inp{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:12px;background:var(--card);color:var(--ink)}
+  .gw-c:hover{background:#eff6ff}
+  .gw-m{cursor:pointer;transition:color .15s;padding-top:16px;padding-bottom:0px}
+  .gw-m:hover{color:var(--blue)}
+  /* Шапка дня: число + день недели; ячейка дня (не кликается) */
+  .gd-h{padding:5px 2px!important}
+  .gd-h b{display:block;font-size:12px}
+  .gd-h span{display:block;font-size:8.5px;font-weight:700;color:var(--muted);white-space:normal;line-height:1.15}
+  .gd-c{border-bottom:1px solid var(--line);border-left:1px solid var(--line);min-height:38px;background:var(--card)}
+  /* Окно «Обозначения работ»: цветной треугольник + описание работы */
+  .gw-legend{display:flex;flex-direction:column}
+  .gw-leg-row{display:flex;align-items:center;gap:14px;padding:8px 2px}
+  .gw-leg-txt{font-size:13px;font-weight:600;color:#4b5563}
+  /* Всплывающая подсказка кнопок панели графика */
+  #gt-tip{position:fixed;z-index:9999;background:var(--slate);color:#fff;font-size:12px;font-weight:600;padding:6px 10px;border-radius:8px;pointer-events:none;box-shadow:var(--shadow-lg);white-space:nowrap;opacity:0;transform:translateY(3px);transition:opacity .15s,transform .15s}
+  #gt-tip.show{opacity:1;transform:translateY(0)}
+
+  /* ---------- TOAST ---------- */
+  #toasts{position:fixed;right:18px;bottom:18px;z-index:999999;display:flex;flex-direction:column;gap:9px;pointer-events:none}
+  .toast{background:var(--slate);color:#fff;padding:12px 15px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-lg);max-width:340px;border-left:4px solid var(--blue);animation:in .2s ease;pointer-events:none}
+  .toast.ok{border-left-color:var(--green)} .toast.warn{border-left-color:var(--yellow)} .toast.err{border-left-color:var(--red)}
+  @keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  @media(max-width:980px){
+    .sidebar{position:fixed;left:-260px;z-index:50;transition:.2s}
+    .sidebar.open{left:0}
+    .kpi-row{grid-template-columns:repeat(2,1fr)}
+    .dash-grid{grid-template-columns:1fr}
+    .map-wrap{grid-template-columns:1fr}
+    .burger{display:inline-flex!important}
+  }
+  .burger{display:none;background:none;border:1px solid var(--line);border-radius:8px;padding:7px;cursor:pointer;align-items:center;justify-content:center}
+  .burger svg{width:18px;height:18px}
+
+  /* =====================================================================
+     ПОЛНАЯ АДАПТИВНОСТЬ — 24", 11", 7", горизонталь/вертикаль
+     ===================================================================== */
+
+  /* === 24" Десктоп (1920px+) — масштабирование вверх === */
+  @media (min-width: 1920px) {
+    body{font-size:16px}
+    .sidebar{width:280px;flex-basis:280px}
+    .kpi .val{font-size:34px}
+    .kpi .lab{font-size:13.5px}
+    .kpi .hint{font-size:13px}
+    .card-h h2{font-size:16px}
+    #view{padding:32px}
+    .card-b{padding:24px}
+    .dash-grid{gap:24px}
+    .kpi-row{gap:20px}
+    .topbar{height:70px}
+    .topbar h1{font-size:19px}
+    .nav a{font-size:15px;padding:12px 14px}
+    .brand .logo{width:72px;height:72px}
+    .brand .bt{font-size:17px}
+    .tile{font-size:12px;padding:5px 8px}
+    .tile .tw{font-size:12px}
+    .tile .th{font-size:10.5px}
+    .col-head{min-width:86px}
+    .mname{min-width:200px}
+    .cell{min-height:72px}
+  }
+
+  /* === 11" Планшет горизонтально (1024–1365px) === */
+  @media (max-width: 1365px) and (min-width: 1024px) {
+    .sidebar{width:220px;flex-basis:220px}
+    .brand .logo{width:52px;height:52px}
+    .brand .bt{font-size:14px}
+    .nav a{font-size:12.5px;padding:8px 10px;gap:9px}
+    .nav a svg{width:16px;height:16px}
+    .kpi .val{font-size:23px}
+    .dash-grid{grid-template-columns:1.3fr 1fr}
+    .map-wrap{grid-template-columns:280px 1fr}
+    #view{padding:18px}
+  }
+
+  /* === 7"–11" Планшет вертикально / смартфон горизонтально (768–1023px) === */
+  @media (max-width: 1023px) and (min-width: 768px) {
+    .sidebar{position:fixed;left:-280px;z-index:50;transition:left .25s;width:260px;flex-basis:260px;box-shadow:0 0 40px rgba(0,0,0,.3)}
+    .sidebar.open{left:0}
+    .burger{display:inline-flex!important}
+    .kpi-row{grid-template-columns:repeat(2,1fr)}
+    .dash-grid{grid-template-columns:1fr}
+    .map-wrap{grid-template-columns:1fr}
+    #view{padding:16px}
+    .card-b{padding:14px}
+    .topbar{padding:0 16px;gap:10px}
+    .topbar h1{font-size:15px}
+    .usr .ur{display:none}
+    .cal-head{gap:8px}
+    .legend{display:none}
+  }
+
+  /* === Планшет вертикально (768–1023px) → портретная ориентация === */
+  @media (max-width: 1023px) and (min-width: 768px) and (orientation: portrait) {
+    .kpi-row{grid-template-columns:repeat(2,1fr);gap:10px}
+    .kpi .val{font-size:22px}
+    .map-wrap{grid-template-columns:1fr}
+    .mlist{max-height:250px}
+  }
+
+  /* === Планшет горизонтально (768–1023px) → ландшафтная ориентация === */
+  @media (max-width: 1023px) and (min-width: 768px) and (orientation: landscape) {
+    .kpi-row{grid-template-columns:repeat(4,1fr)}
+    .dash-grid{grid-template-columns:1fr 1fr}
+    .map-wrap{grid-template-columns:300px 1fr}
+    .mlist{max-height:calc(100vh - 220px)}
+  }
+
+  /* === Смартфон (<768px) === */
+  @media (max-width: 767px) {
+    .sidebar{position:fixed;left:-280px;z-index:50;transition:left .25s;width:260px;flex-basis:260px;box-shadow:0 0 40px rgba(0,0,0,.3)}
+    .sidebar.open{left:0}
+    .burger{display:inline-flex!important}
+    body{font-size:13px}
+    #view{padding:12px}
+    .card-b{padding:12px}
+    .card-h{padding:10px 12px;flex-wrap:wrap}
+    .card-h h2{font-size:13px}
+    /* KPI — 1 колонка на телефоне */
+    .kpi-row{grid-template-columns:1fr 1fr;gap:8px}
+    .kpi{padding:12px}
+    .kpi .val{font-size:20px}
+    .kpi .lab{font-size:10.5px}
+    .kpi .hint{font-size:10px}
+    /* Дашборд в одну колонку */
+    .dash-grid{grid-template-columns:1fr;gap:12px}
+    /* Карта — одна колонка, список сверху */
+    .map-wrap{grid-template-columns:1fr}
+    .mlist{max-height:200px}
+    /* Топбар — компактнее */
+    .topbar{height:auto;padding:8px 12px;flex-wrap:wrap;gap:8px;position:sticky}
+    .topbar h1{font-size:14px}
+    .topbar .crumb{font-size:11px}
+    .usr .ur{display:none}
+    .usr .un{font-size:11px}
+    .usr .av{width:30px;height:30px;font-size:12px}
+    /* Календарь — уменьшенный */
+    .cal-head{gap:6px}
+    .cal-title{font-size:13px}
+    .legend{display:none}
+    .trash-zone{font-size:11px;padding:5px 10px}
+    /* Модальные окна — почти на весь экран */
+    .overlay{padding:0}
+    .modal{max-width:100%!important;border-radius:0;min-height:100vh}
+    .modal-b{padding:14px}
+    /* Тосты — выше, чтобы не перекрывать кнопку чата */
+    #toasts{bottom:70px;right:10px;left:10px}
+    .toast{max-width:100%}
+    /* Панель маршрута */
+    .route-link-panel{border-radius:8px;padding:8px 10px}
+    .route-link-panel span{font-size:11px;min-width:140px}
+    /* Сегментные кнопки крупнее */
+    .seg button{padding:7px 12px;font-size:12px}
+    .btn{padding:7px 11px;font-size:12px}
+    .btn.sm{padding:6px 9px;font-size:11px}
+    /* Отчёты */
+    .report-month-dropdown{width:calc(100vw - 24px);max-width:300px}
+    /* Дата-попап */
+    #date-popup{width:calc(100vw - 24px);max-width:320px}
+  }
+
+  /* === Смартфон вертикально (портрет) === */
+  @media (max-width: 767px) and (orientation: portrait) {
+    .kpi-row{grid-template-columns:1fr 1fr}
+    .col-head{font-size:10px}
+    .col-head .dn{font-size:12px}
+    .mname{min-width:120px}
+    .mname .nm{font-size:11px}
+    .cell{min-height:50px}
+    .login-wrap{padding:20px}
+  }
+
+  /* === Смартфон горизонтально (ландшафт) === */
+  @media (max-width: 767px) and (orientation: landscape) {
+    .kpi-row{grid-template-columns:repeat(4,1fr);gap:6px}
+    .kpi .val{font-size:18px}
+    .dash-grid{grid-template-columns:1fr 1fr}
+    .map-wrap{grid-template-columns:1fr 1fr}
+    .mlist{max-height:calc(100vh - 160px)}
+    /* ширина ячеек единая — min-width не нужен */
+    /* Топбар тоньше в ландшафте */
+    .topbar{padding:4px 12px}
+    #view{padding:10px}
+    /* Экран входа компактнее */
+    .login-card{max-width:340px}
+    .login-wrap{padding:20px}
+  }
+
+  /* === Очень маленькие экраны (<380px) === */
+  @media (max-width: 379px) {
+    .kpi-row{grid-template-columns:1fr}
+    .kpi .val{font-size:18px}
+    .topbar h1{font-size:13px}
+    .usr .un{display:none}
+    .nav a{font-size:12px}
+    .brand .logo{width:44px;height:44px}
+    .brand .bt{font-size:13px}
+    .brand .bs{font-size:10px}
+  }
+
+  /* ---------- ЭКРАН ВХОДА ---------- */
+  .login-screen{position:fixed;inset:0;z-index:500;background:linear-gradient(135deg,rgba(15,39,64,.25),rgba(22,56,92,.25)),url('fon.webp') center/cover no-repeat;display:flex;align-items:center;justify-content:center;padding:20px}
+  body.logged-in .login-screen{display:none}
+  /* Обёртка даёт отступ 100px вокруг карточки входа */
+  .login-wrap{position:relative;padding:100px;width:100%;max-width:584px;z-index:2}
+  .login-card{background:var(--card);border-radius:16px;width:100%;max-width:384px;box-shadow:0 24px 70px rgba(0,0,0,.4);overflow:hidden;position:relative;z-index:1}
+  .login-brand{display:flex;align-items:center;gap:11px;padding:18px 20px;background:#f8fafc;border-bottom:1px solid var(--line)}
+  .login-brand .logo{width:66px;height:66px;border-radius:13px;background:#fff;padding:6px;object-fit:contain;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+  .login-brand .bt{font-size:16px;font-weight:800;color:var(--ink)}
+  .login-brand .bs{font-size:11px;color:var(--muted)}
+  .login-body{padding:22px 20px}
+  .login-body h2{margin:0 0 14px;font-size:16px;color:var(--ink)}
+  .li-err{color:var(--red);font-size:12px;min-height:15px;margin-bottom:8px}
+  .li-hint{margin-top:14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:10px 12px;font-size:11.5px;color:#1e3a8a;line-height:1.8}
+  .li-hint code{background:#dbeafe;padding:1px 5px;border-radius:4px;font-weight:700}
+  body:not(.logged-in) .app{display:none}
+
+  /* =====================================================================
+     АНИМАЦИИ И ПЕРЕХОДЫ (весь сайт)
+     ===================================================================== */
+  /* Базовые keyframes */
+  @keyframes fadeInUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes scaleIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+  @keyframes slideInLeft{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+  @keyframes slideInRight{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+  @keyframes popIn{0%{opacity:0;transform:scale(.8)}60%{transform:scale(1.04)}100%{opacity:1;transform:scale(1)}}
+  @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+  @keyframes pulseSoft{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.07);opacity:.85}}
+  @keyframes spinLoad{to{transform:rotate(360deg)}}
+
+  /* Появление контента при смене экрана */
+  #view{animation:fadeIn .3s ease}
+  #view > *{animation:fadeInUp .4s cubic-bezier(.4,0,.2,1) backwards}
+  #view > *:nth-child(1){animation-delay:.02s}
+  #view > *:nth-child(2){animation-delay:.08s}
+  #view > *:nth-child(3){animation-delay:.14s}
+  #view > *:nth-child(4){animation-delay:.2s}
+
+  /* Кнопки */
+  .btn{transition:transform .18s cubic-bezier(.4,0,.2,1),background .18s,border-color .18s,box-shadow .18s,color .18s}
+  .btn:hover{transform:translateY(-2px)}
+  .btn:active{transform:translateY(0) scale(.97)}
+  .btn.primary:hover{box-shadow:0 8px 20px rgba(37,99,235,.32)}
+
+  /* Навигация */
+  .nav a{transition:all .2s cubic-bezier(.4,0,.2,1)}
+  .nav a:hover{transform:translateX(4px)}
+  .nav a.active{animation:slideInLeft .3s ease}
+
+  /* KPI-карточки */
+  .kpi{transition:transform .25s cubic-bezier(.4,0,.2,1),box-shadow .25s}
+  .kpi:hover{transform:translateY(-4px) scale(1.02)}
+  .kpi .val{transition:color .2s}
+
+  /* Общие карточки */
+  .card{transition:box-shadow .25s,transform .25s}
+  .card:hover{transform:translateY(-1px)}
+
+  /* Календарь — тайлы */
+  .tile{transition:transform .18s cubic-bezier(.4,0,.2,1),box-shadow .18s,opacity .18s}
+  .tile:hover{transform:scale(1.05);box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:2}
+  .tile.t-green:hover,.tile.t-yellow:hover,.tile.t-red:hover{transform:scale(1.05) translateY(-1px)}
+  .cell{transition:background .15s,box-shadow .15s}
+  .today-mstr{transition:transform .2s,box-shadow .2s}
+  .today-mstr:hover{transform:translateX(3px)}
+  .rz-item{transition:transform .2s,background .2s}
+  .rz-item:hover{transform:translateX(4px);background:#f8fafc}
+
+  /* Карта маршрутов */
+  .mtask{transition:all .2s cubic-bezier(.4,0,.2,1)}
+  .mtask:hover{transform:translateX(4px)}
+  .mtask .pin{transition:transform .2s}
+  .mtask:hover .pin{transform:scale(1.12) rotate(-5deg)}
+  .trash-zone{transition:all .2s cubic-bezier(.4,0,.2,1)}
+
+  /* Чипы и элементы справочников */
+  .chip{transition:transform .18s,background .18s}
+  .chip:hover{transform:scale(1.08)}
+  .tree li.w{transition:background .18s,padding-left .18s}
+  .tree li.w:hover{background:#f8fafc;padding-left:4px}
+  table.dt tr{transition:background .15s}
+  .tabs button{transition:color .2s,border-color .2s}
+  .seg button{transition:all .2s cubic-bezier(.4,0,.2,1)}
+
+  /* Кольца прогресса */
+  .ring{transition:transform .25s,box-shadow .25s}
+  .ring:hover{transform:translateY(-3px) scale(1.04)}
+  .ring svg circle:last-child{transition:stroke-dashoffset 1s cubic-bezier(.4,0,.2,1)}
+
+  /* Бейджи */
+  .nav .badge{animation:pulseSoft 2.2s ease-in-out infinite}
+  .btn .badge{animation:pulseSoft 2.2s ease-in-out infinite}
+
+  /* Поля ввода */
+  .fld input,.fld select{transition:border-color .2s,box-shadow .2s,background .2s}
+  .fld input:hover,.fld select:hover{border-color:#cbd5e1;background:#fcfdff}
+
+  /* Модальное окно */
+  .overlay{transition:opacity .25s ease}
+  .modal{animation:popIn .3s cubic-bezier(.34,1.56,.64,1)}
+  .modal-h,.modal-f{animation:fadeIn .35s ease .05s backwards}
+
+  /* Toast — лёгкое подпрыгивание */
+  .toast{animation:fadeInUp .3s cubic-bezier(.34,1.56,.64,1)}
+
+  /* Бренд-логотип в сайдбаре */
+  .brand .logo{transition:transform .3s}
+  .brand:hover .logo{transform:rotate(-6deg) scale(1.05)}
+  .login-brand .logo{transition:transform .3s}
+  .login-brand:hover .logo{transform:rotate(-6deg) scale(1.05)}
+
+  /* Аватар пользователя */
+  .usr .av{transition:transform .25s}
+  .usr:hover .av{transform:scale(1.1) rotate(5deg)}
+
+  /* Экран входа */
+  .login-card{animation:popIn .5s cubic-bezier(.34,1.56,.64,1)}
+  .login-body h2{animation:fadeIn .5s ease .15s backwards}
+
+  /* Скроллбар */
+  .nav::-webkit-scrollbar,.cal-scroll::-webkit-scrollbar,.mlist::-webkit-scrollbar{width:8px;height:8px}
+  .nav::-webkit-scrollbar-thumb,.cal-scroll::-webkit-scrollbar-thumb,.mlist::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px;transition:background .2s}
+  .nav::-webkit-scrollbar-thumb:hover,.cal-scroll::-webkit-scrollbar-thumb:hover,.mlist::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+  /* ---------- LEAFLET ---------- */
+  .leaflet-control-container .leaflet-bottom.leaflet-right { display: none !important }
+  .leaflet-control-zoom { border: none !important; box-shadow: 0 2px 8px rgba(0,0,0,.15) !important }
+  .leaflet-control-zoom a { background: #fff !important; color: var(--ink) !important; border: none !important }
+
+  /* ---------- TOUCH / ПЛАНШЕТЫ ---------- */
+  /* touch-action: none чтобы браузер не перехватывал жест при перетаскивании */
+  .tile[draggable="true"], .mtask[draggable="true"] { touch-action: none }
+  /* Ghost-клон при touch-перетаскивании */
+  .tile.touch-dragging, .mtask.touch-dragging { box-shadow: 0 8px 24px rgba(37,99,235,.4)!important }
+  /* Увеличенная зона касания для чекбоксов на мобильных */
+  @media (pointer: coarse) {
+    .tile-chk { width: 22px; height: 22px }
+    .tile-chk-box { width: 20px; height: 20px }
+    .seg button { padding: 8px 16px; font-size: 13px }
+    .btn.sm { padding: 7px 12px; font-size: 13px }
+    .tile { padding: 5px 7px; font-size: 11px }
+    .tile .tw { font-size: 11px }
+    .tile .th { font-size: 10px }
+    .col-head { min-width: 60px }
+    .cell { min-height: 55px }
+    .mname { min-width: 140px }
+    /* ширина ячеек единая — min-width не нужен */
+    .mtask { padding: 12px 11px }
+  }
+
+  /* Уважение к настройке «уменьшить анимацию» */
+  @media (prefers-reduced-motion:reduce){
+    *:not(.wx-scene):not(.wx-drop):not(.wx-flake):not(.wx-cloud):not(.wx-sun):not(.wx-sun-rays):not(.wx-sun-wrap):not(.wx-godrays):not(.wx-moon):not(.wx-moon-shadow):not(.wx-star){animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+    .ai-typing span{animation:aiWave 1.2s ease-in-out infinite!important}
+  }
+
+  /* ---------- ЧИПЫ РОЛЕЙ ---------- */
+  .chip.navy{background:#e2e8f0;color:#0f2740}
+  .chip.blue{background:#dbeafe;color:#1d4ed8}
+  .chip.purple{background:#ede9fe;color:#6d28d9}
+  .chip.teal{background:#ccfbf1;color:#0f766e}
+  .chip.slate{background:#e2e8f0;color:#475569}
+  .fld label.cb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);font-weight:600;cursor:pointer}
+  .fld label.cb input{width:auto;margin:0}
+
+  /* ---------- ПОПАП-КАЛЕНДАРЬ ---------- */
+  #date-popup{position:fixed;z-index:250;background:var(--card);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.2);border:1px solid var(--line);padding:16px;width:320px;display:none}
+  #date-popup.open{display:block;animation:scaleIn .2s ease}
+  #date-popup .dp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  #date-popup .dp-title{font-size:14px;font-weight:700;color:var(--ink)}
+  #date-popup .dp-nav{display:flex;gap:4px}
+  #date-popup .dp-nav button{width:30px;height:30px;border:1px solid var(--line);background:var(--card);border-radius:6px;cursor:pointer;font-size:14px;color:var(--ink);display:flex;align-items:center;justify-content:center;transition:.15s}
+  #date-popup .dp-nav button:hover{background:var(--blue);color:#fff;border-color:var(--blue)}
+  #date-popup .dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+  #date-popup .dp-wd{text-align:center;font-size:11px;color:var(--muted);font-weight:700;padding:4px 0}
+  #date-popup .dp-day{text-align:center;padding:8px 0;font-size:13px;color:var(--ink);cursor:pointer;border-radius:6px;transition:.12s;border:none;background:none;font-family:inherit}
+  #date-popup .dp-day:hover{background:#dbeafe;color:var(--blue)}
+  #date-popup .dp-day.today{font-weight:800;color:var(--blue)}
+  #date-popup .dp-day.selected{background:var(--blue);color:#fff;font-weight:700}
+  #date-popup .dp-day.other-month{color:#cbd5e1}
+  #date-popup .dp-actions{display:flex;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+  #date-popup .dp-actions button{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);transition:.15s;font-family:inherit}
+  #date-popup .dp-actions button:hover{background:#f8fafc}
+  #date-popup .dp-actions button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  #date-popup .dp-actions button.primary:hover{background:var(--blue-d)}
+  #date-popup .dp-overlay{position:fixed;inset:0;z-index:-1}
+
+  /* ---------- ПОПАП ПОГОДЫ (выпадающий список) ---------- */
+  .weather-dropdown{position:relative;max-height:0;opacity:0;overflow:hidden;padding:0 16px;margin-top:0;background:linear-gradient(160deg,#1e3a5f,#0f2740);color:#fff;border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.2);transition:max-height .45s cubic-bezier(.4,0,.2,1),opacity .35s ease,padding .35s ease,margin-top .35s ease}
+  .weather-dropdown.open{max-height:360px;opacity:1;padding:16px;margin-top:8px}
+  @keyframes wpFadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+  .weather-dropdown .wd-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .weather-dropdown .wd-title{font-size:14px;font-weight:700}
+  .weather-dropdown .wd-sub{font-size:11px;color:#93c5fd}
+  .weather-dropdown .wd-close{background:rgba(255,255,255,.15);border:none;color:#fff;font-size:16px;width:28px;height:28px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .weather-dropdown .wd-close:hover{background:rgba(255,255,255,.3)}
+  .weather-dropdown .wd-grid{display:flex;gap:8px;overflow-x:auto;padding:5px 4px 8px 4px}
+  .weather-dropdown .wd-day{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 10px;text-align:center;min-width:95px;transition:.3s;animation:wpDayIn .4s ease backwards;cursor:pointer;display:flex;flex-direction:column;align-items:center}
+  @keyframes wpDayIn{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
+  .weather-dropdown .wd-day:hover{background:rgba(255,255,255,.18);transform:translateY(-3px)}
+  /* === Анимированная сцена погоды (v7 — чистый CSS, без эмодзи) === */
+  .wx-scene{position:absolute;inset:0;overflow:hidden;border-radius:10px;z-index:0;pointer-events:none}
+  .wx-scene *{-webkit-text-stroke:0 transparent;text-shadow:none;outline:none}
+
+  /* Солнце: светящийся диск + вращающиеся лучи + пульсация */
+  .wx-sun-wrap{position:absolute;width:66px;height:66px;animation:wxSunPulse 4s ease-in-out infinite}
+  .wx-sun{position:absolute;inset:13px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fffdf0,#ffe066 48%,#f59e0b);box-shadow:0 0 16px rgba(255,213,70,.9),0 0 38px rgba(255,200,70,.45)}
+  .wx-sun-wrap.dim .wx-sun{background:radial-gradient(circle at 35% 30%,#fef3c7,#fde68a 45%,#d1d5db 100%);box-shadow:0 0 12px rgba(220,200,100,.35)}
+  .wx-sun-wrap.evening .wx-sun{background:radial-gradient(circle at 35% 30%,#fff7ed,#fb923c 48%,#c2410c);box-shadow:0 0 16px rgba(251,146,60,.8),0 0 38px rgba(194,65,12,.4)}
+  .wx-sun-wrap.morning .wx-sun{background:radial-gradient(circle at 35% 30%,#fff7ed,#fdba74 48%,#ea580c);box-shadow:0 0 16px rgba(253,186,116,.7),0 0 38px rgba(234,88,12,.35)}
+  .wx-sun-rays{position:absolute;inset:0;border-radius:50%;background:repeating-conic-gradient(from 0deg,rgba(255,225,130,.9) 0 2.5deg,transparent 2.5deg 22.5deg);-webkit-mask:radial-gradient(circle,transparent 0 44%,#000 47% 94%,transparent 97%);mask:radial-gradient(circle,transparent 0 44%,#000 47% 94%,transparent 97%);animation:wxSunSpin 30s linear infinite}
+
+  /* Полупрозрачные толстые солнечные лучи (god rays) через весь блок — только при ясной погоде */
+  .wx-godrays{position:absolute;inset:0;z-index:0;pointer-events:none;background:repeating-conic-gradient(from 5deg at calc(100% - 39px) 7px,rgba(255,248,220,0) 0deg 3deg,rgba(255,248,220,.4) 9deg,rgba(255,248,220,.5) 13deg,rgba(255,248,220,.4) 17deg,rgba(255,248,220,0) 23deg 30deg);-webkit-mask:radial-gradient(circle at calc(100% - 39px) 7px,transparent 0 6%,#000 9% 100%);mask:radial-gradient(circle at calc(100% - 39px) 7px,transparent 0 6%,#000 9% 100%);filter:blur(3px);animation:wxGodPulse 8s ease-in-out infinite}
+  @keyframes wxGodPulse{0%,100%{opacity:.5}50%{opacity:.9}}
+
+  /* Луна: фазы рисуются смещением круга-тени (.wx-moon-shadow) */
+  .wx-moon{position:absolute;width:46px;height:46px;border-radius:50%;overflow:hidden;background:radial-gradient(circle at 35% 30%,#fdfdeb,#dedeca 70%,#b4b4a4);box-shadow:0 0 14px rgba(240,240,220,.5),inset -4px -4px 9px rgba(0,0,0,.18);animation:wxMoonFloat 6s ease-in-out infinite}
+  .wx-moon-shadow{position:absolute;top:0;left:0;width:46px;height:46px;border-radius:50%;background:#0f1c33}
+
+  /* Звёзды — четырёхконечные с игольчатым сиянием */
+  .wx-star{position:absolute;width:9px;height:9px;background:#fff;clip-path:polygon(50% 0,60% 40%,100% 50%,60% 60%,50% 100%,40% 60%,0 50%,40% 40%);filter:drop-shadow(0 0 3px rgba(255,255,255,.85));animation:wxTwinkle 2.5s ease-in-out infinite}
+
+  /* Облако — основание-таблетка + две выпуклости */
+  .wx-cloud{position:absolute;width:58px;height:20px;border-radius:20px;background:linear-gradient(180deg,#ffffff,#dbe4ec);box-shadow:0 2px 6px rgba(0,0,0,.08)}
+  .wx-cloud:before{content:"";position:absolute;width:28px;height:28px;border-radius:50%;background:inherit;top:-13px;left:9px}
+  .wx-cloud:after{content:"";position:absolute;width:20px;height:20px;border-radius:50%;background:inherit;top:-8px;left:32px}
+
+  /* Капля дождя — каплевидная форма (остриём вверх, как 💧) + блик */
+  .wx-drop{position:absolute;width:5px;height:6px;animation:wxDropFall .85s linear infinite}
+  .wx-drop:before{content:"";position:absolute;left:50%;top:0;width:5px;height:5px;margin-left:-2.5px;background:linear-gradient(150deg,#bae6fd 0%,#38bdf8 45%,#2563eb 100%);border-radius:0 50% 50% 50%;transform:rotate(45deg);box-shadow:0 0 2px rgba(56,189,248,.55)}
+  .wx-drop:after{content:"";position:absolute;left:1px;top:3.5px;width:1.5px;height:1.5px;background:rgba(255,255,255,.85);border-radius:50%}
+
+  /* Снежинка — три перекрещенных луча (6 концов) */
+  .wx-flake{position:absolute;width:11px;height:2px;background:rgba(255,255,255,.95);border-radius:1px;box-shadow:0 0 3px rgba(255,255,255,.75);animation:wxFlakeFall 3.5s linear infinite}
+  .wx-flake:before,.wx-flake:after{content:"";position:absolute;inset:0;background:inherit;border-radius:inherit;box-shadow:inherit}
+  .wx-flake:before{transform:rotate(60deg)}
+  .wx-flake:after{transform:rotate(-60deg)}
+
+  /* Молния: вспышка на всю сцену + зигзагообразный разряд с ответвлениями */
+  .wx-flash{position:absolute;inset:0;z-index:5;pointer-events:none;opacity:0;mix-blend-mode:screen;background:radial-gradient(ellipse 115% 95% at 50% 5%,#ffffff 0%,rgba(210,234,255,.98) 30%,rgba(150,195,255,.72) 60%,rgba(110,165,255,.38) 80%,transparent 96%)}
+  .wx-flash.on{animation:wxFlicker .7s ease-out}
+  .wx-bolts{position:absolute;inset:0;z-index:6;pointer-events:none;overflow:visible;filter:drop-shadow(0 0 4px rgba(196,228,255,.95)) drop-shadow(0 0 11px rgba(120,180,255,.7));-webkit-mask:linear-gradient(to right,transparent 25%,black 55%);mask:linear-gradient(to right,transparent 25%,black 55%)}
+  .wx-seg{position:absolute;border-radius:2px;background:linear-gradient(90deg,#dbeafe,#ffffff,#bfdbfe);transform-origin:center}
+  /* Жёлтая вспышка/свечение (20% разрядов) */
+  .wx-flash.yellow{background:radial-gradient(ellipse 115% 95% at 50% 5%,#fffbe6 0%,rgba(255,236,150,.98) 30%,rgba(255,205,70,.72) 60%,rgba(255,170,30,.38) 80%,transparent 96%)}
+  .wx-bolts.yellow{filter:drop-shadow(0 0 4px rgba(255,235,150,.95)) drop-shadow(0 0 11px rgba(255,190,60,.7))}
+  /* Грозовые (тёмные) облака — при сильном дожде/ливне/грозе */
+  .wx-cloud.dark{background:linear-gradient(180deg,#64748b,#334155)}
+  /* Маленькие молнии, бьющие из грозовых облаков */
+  .wx-sparks{position:absolute;inset:0;z-index:4;pointer-events:none;overflow:visible;filter:drop-shadow(0 0 3px rgba(196,228,255,.9));-webkit-mask:linear-gradient(to right,transparent 25%,black 55%);mask:linear-gradient(to right,transparent 25%,black 55%)}
+
+  @keyframes wxSunPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+  @keyframes wxSunSpin{to{transform:rotate(360deg)}}
+  @keyframes wxMoonFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+  @keyframes wxTwinkle{0%,100%{opacity:.2}50%{opacity:1}}
+  @keyframes wxCloudRight{0%{left:28%;opacity:0}6%,90%{opacity:.78}100%{left:103%;opacity:0}}
+  @keyframes wxCloudLeft{0%{left:103%;opacity:0}6%,90%{opacity:.78}100%{left:28%;opacity:0}}
+  @keyframes wxDropFall{0%{transform:translateY(-14px);opacity:0}6%{opacity:.85}88%{opacity:.85}100%{transform:translateY(150px);opacity:0}}
+  @keyframes wxDropFallWind{0%{transform:translate(-3px,-14px);opacity:0}6%{opacity:.85}88%{opacity:.85}100%{transform:translate(18px,150px);opacity:0}}
+  .wx-scene.wx-windy .wx-drop{animation-name:wxDropFallWind}
+  .wx-wind{position:absolute;height:2px;border-radius:10px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);opacity:0;pointer-events:none;z-index:1}
+  @keyframes wxWindMove{0%{left:-25%;opacity:0;transform:translateY(0) skewX(0deg)}8%{opacity:.55}14%{transform:translateY(-8px) skewX(-8deg)}25%{transform:translateY(5px) skewX(6deg)}36%{transform:translateY(-6px) skewX(-9deg)}47%{transform:translateY(7px) skewX(5deg)}58%{transform:translateY(-4px) skewX(-7deg)}69%{transform:translateY(6px) skewX(8deg)}80%{transform:translateY(-3px) skewX(-4deg)}88%{transform:translateY(2px) skewX(2deg)}92%{opacity:.55}100%{left:125%;opacity:0;transform:translateY(0) skewX(0deg)}}
+  @keyframes wxFlakeFall{0%{transform:translateY(-12px) translateX(0);opacity:0}8%{opacity:.9}20%{transform:translateY(12px) translateX(6px)}40%{transform:translateY(28px) translateX(-6px)}60%{transform:translateY(44px) translateX(6px)}80%{transform:translateY(62px) translateX(-5px)}92%{opacity:.9}100%{transform:translateY(85px) translateX(0);opacity:0}}
+  @keyframes wxFlakeFallWind{0%{transform:translate(0,-12px);opacity:0}8%{opacity:.9}20%{transform:translate(16px,6px)}40%{transform:translate(8px,24px)}60%{transform:translate(26px,44px)}80%{transform:translate(16px,62px)}92%{opacity:.9}100%{transform:translate(38px,85px);opacity:0}}
+  @keyframes wxFlicker{0%{opacity:0}2%{opacity:1}8%{opacity:.55}13%{opacity:1}24%{opacity:.4}36%{opacity:.85}52%{opacity:.5}100%{opacity:0}}
+  .weather-dropdown .wd-day.today{background:linear-gradient(135deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.5)}
+  .weather-dropdown .wd-dow{font-size:10px;text-transform:uppercase;color:#93c5fd;font-weight:700}
+  .weather-dropdown .wd-date{font-size:13px;font-weight:800;margin:2px 0 6px}
+  .weather-dropdown .wd-icon{font-size:24px;margin-bottom:4px}
+  .weather-dropdown .wd-temp{font-size:15px;font-weight:800}
+  .weather-dropdown .wd-desc{font-size:9px;color:#cbd5e1;margin-top:2px;height:24px;display:flex;align-items:center;justify-content:center}
+
+  /* ---------- ВЫПАДАЮЩИЙ КАЛЕНДАРЬ ВЫБОРА МЕСЯЦА (отчёты) ---------- */
+  .report-month-dropdown{display:none;position:fixed;top:0;left:0;z-index:9999;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.25);padding:14px;width:300px}
+  .report-month-dropdown.open{display:block;animation:scaleIn .2s ease}
+  .report-month-dropdown .rm-head{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;position:relative}
+  .report-month-dropdown .rm-head button{width:32px;height:32px;border:1px solid var(--line);background:var(--card);border-radius:7px;cursor:pointer;font-size:16px;color:var(--ink);display:flex;align-items:center;justify-content:center;transition:.15s;font-family:inherit}
+  .report-month-dropdown .rm-head button:hover{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .report-month-dropdown .rm-year{font-size:16px;font-weight:800;color:var(--ink);min-width:60px;text-align:center}
+  .report-month-dropdown .rm-close{position:absolute;right:0;top:0;width:26px!important;height:26px!important;font-size:16px!important;border:none!important;background:transparent!important;color:var(--muted)!important}
+  .report-month-dropdown .rm-close:hover{color:var(--red)!important;background:transparent!important}
+  .report-month-dropdown .rm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .report-month-dropdown .rm-month{padding:11px 4px;border:1px solid var(--line);background:var(--card);border-radius:8px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink);transition:.15s;font-family:inherit;text-align:center}
+  .report-month-dropdown .rm-month:hover{background:#dbeafe;border-color:var(--blue);color:var(--blue)}
+  .report-month-dropdown .rm-month.selected{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700}
+  .report-month-dropdown .rm-month.current{border-color:var(--green)}
+  .report-month-dropdown .rm-month.current.selected{background:var(--blue);border-color:var(--blue)}
+
+  /* ---------- УБиРОГС: МЕТКИ И ФИЛЬТРЫ ---------- */
+  .weather-warn{background:#fef3c7;border:1px solid #facc15;color:#92400e;border-radius:8px;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .permit-warn{background:#fee2e2;border:1px solid #f87171;color:#991b1b;border-radius:8px;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .snow-badge{display:inline-flex;align-items:center;gap:4px;background:#dbeafe;color:#1e40af;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600}
+  .permit-badge{display:inline-flex;align-items:center;gap:4px;background:#fee2e2;color:#991b1b;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600}
+  .weather-badge{display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#92400e;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600}
+  .equipment-badge{display:inline-flex;align-items:center;gap:4px;background:#f0fdf4;color:#166534;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600}
+  .filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  .filter-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);font-size:12px;font-weight:600;cursor:pointer;transition:.15s;color:var(--muted)}
+  .filter-chip:hover{border-color:var(--blue);color:var(--ink)}
+  .filter-chip.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .vol-input{display:flex;align-items:center;gap:8px}
+  .vol-input input{flex:1;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;background:var(--card);font-family:inherit;color:var(--ink);min-width:0}
+  .vol-input input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+  .vol-unit{font-size:12px;font-weight:700;color:var(--muted);min-width:30px}
+  .attr-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  .attr-row .fld{margin-bottom:0}
+  .tile.t-weather{background:#fef3c7!important;border-left-color:#facc15!important}
+  .tile.t-weather .tw{color:#92400e!important}
+  .ov-weather{position:absolute;top:2px;right:3px;font-size:9px;font-weight:800;color:#fff;background:#f59e0b;border-radius:5px;padding:0 4px}
+  .tile-permit{display:block;font-size:9px;color:#b91c1c;font-weight:700;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Бейдж времени в пути (маршрут) в ячейке календаря */
+  .cell-route{font-size:9px;font-weight:700;color:#1e40af;background:#dbeafe;border-radius:4px;padding:1px 5px;margin-top:auto;white-space:nowrap;align-self:flex-start}
+  /* Карточка базы в списке заданий карты */
+  .mtask.base-card{cursor:default!important}
+  .mtask.base-card:hover{transform:none!important;background:linear-gradient(135deg,#0f2740,#1a3a5c)!important;border-color:transparent!important}
+  .mtask.base-card:hover .pin{transform:none!important}
+
+  /* Капли дождя по стеклу (для панели прогноза) */
+  .weather-dropdown .wd-head{position:relative;z-index:2}
+  .weather-dropdown .wd-grid{position:relative;z-index:2}
+  .glass-head{position:absolute;width:4px;height:5px;border-radius:50%;background:rgba(255,255,255,.5);box-shadow:0 0 2px rgba(255,255,255,.3),inset 0 -1px 1px rgba(255,255,255,.2);pointer-events:none;z-index:1}
+  .glass-trail{position:absolute;width:2px;height:2px;border-radius:50%;background:rgba(255,255,255,.22);pointer-events:none;z-index:0;transition:opacity 2.5s ease-out}
+  .snow-dot{position:absolute;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.7);box-shadow:0 0 3px rgba(255,255,255,.5);pointer-events:none;z-index:1}
+  .glass-flake{position:absolute;width:7px;height:1.4px;background:rgba(255,255,255,.9);border-radius:1px;box-shadow:0 0 3px rgba(255,255,255,.65);pointer-events:none;z-index:1;will-change:transform}
+  .glass-flake:before,.glass-flake:after{content:"";position:absolute;inset:0;background:inherit;border-radius:inherit;box-shadow:inherit}
+  .glass-flake:before{transform:rotate(60deg)}
+  .glass-flake:after{transform:rotate(-60deg)}
+/* Модальное окно карты погоды */
+#wx-map-overlay{display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)}
+#wx-map-overlay.show{display:block}
+#wx-map-window{position:absolute;inset:20px;background:var(--card);border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);display:flex;flex-direction:column}
+#wx-map-header{display:flex;align-items:center;gap:12px;padding:12px 18px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;flex-shrink:0}
+#wx-map-header .wx-title{font-size:15px;font-weight:700;flex:1}
+#wx-map-close{background:none;border:none;color:#fff;font-size:26px;cursor:pointer;padding:0 4px;line-height:1;opacity:.9;transition:.15s}
+#wx-map-close:hover{opacity:1;transform:rotate(90deg)}
+#wx-map-body{flex:1;position:relative;overflow:hidden;background:#a9c7e0}
+#wx-map-canvas{position:absolute;inset:0;width:100%;height:100%}
+#wx-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px;background:#eef2f6;z-index:10}
+
+/* Переключатель подложки OSM / Google в шапке карты */
+#wx-basemap-sel{display:inline-flex;gap:4px;background:rgba(255,255,255,.18);border-radius:9px;padding:3px}
+.wx-bm-btn{border:none;background:transparent;color:#dbeafe;font-size:12px;font-weight:700;font-family:inherit;padding:5px 12px;border-radius:7px;cursor:pointer;transition:.15s}
+.wx-bm-btn:hover{background:rgba(255,255,255,.2)}
+.wx-bm-btn.on{background:#fff;color:#0f2740}
+/* Значения в метке ячейки */
+.wx-cl-row{display:inline-flex;align-items:center;gap:1px;font-size:9.5px;font-weight:800;line-height:1.1}
+
+/* Левая верхняя панель выбора слоёв */
+.wx-layers{position:absolute;top:12px;left:47px;z-index:600;width:200px;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.7);border-radius:13px;box-shadow:0 8px 28px rgba(15,39,64,.22);padding:11px 12px 12px;animation:wxSlideIn .3s ease}
+@keyframes wxSlideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+.wx-layers .wx-l-head{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#0f2740;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;padding-bottom:7px;border-bottom:1px solid #e2e8f0}
+.wx-l-head .wx-l-toggle{margin-left:auto;background:none;border:none;cursor:pointer;color:#64748b;font-size:14px;line-height:1;padding:2px 4px;border-radius:5px;transition:.15s}
+.wx-l-head .wx-l-toggle:hover{background:#eef2f6;color:#0f2740}
+.wx-layers.collapsed .wx-l-body{display:none}
+.wx-layers .wx-l-sub{font-size:9.5px;color:#64748b;margin:2px 0 8px;font-weight:600}
+.wx-layer-item{display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:9px;cursor:pointer;transition:.15s;user-select:none;margin-bottom:2px}
+.wx-layer-item:hover{background:#eef4fb}
+.wx-layer-item .wx-l-ic{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 26px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.wx-layer-item .wx-l-name{font-size:12.5px;font-weight:700;color:#1f2937;flex:1}
+.wx-layer-item .wx-l-box{width:18px;height:18px;border-radius:6px;border:2px solid #5b6b80;background:var(--card);flex:0 0 18px;display:flex;align-items:center;justify-content:center;transition:.15s}
+.wx-layer-item.on .wx-l-box{border-color:#2563eb}
+.wx-layer-item.on .wx-l-box::after{content:'';width:9px;height:5px;border:solid #fff;border-width:0 0 2.5px 2.5px;transform:rotate(-45deg) translate(1px,-1px)}
+.wx-layer-item.on .wx-l-box{background:#2563eb}
+.wx-layer-item.on{background:linear-gradient(90deg,rgba(37,99,235,.10),rgba(37,99,235,.02))}
+.wx-layer-item.on .wx-l-ic{filter:saturate(1.15)}
+@media(max-width:767px){.wx-layers{width:168px;top:8px;left:8px;padding:9px 10px}}
+
+/* Нижний таймлайн (48 часов: начало сегодня 00:00 — конец завтра 23:00) */
+.wx-timeline{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:600;width:min(720px,calc(100% - 28px));background:rgba(15,39,64,.93);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:14px;padding:9px 16px 11px;box-shadow:0 8px 28px rgba(0,0,0,.32);animation:wxSlideUp .3s ease}
+@keyframes wxSlideUp{from{opacity:0;transform:translateX(-50%) translateY(14px)}to{opacity:1;transform:translateX(-50%)}}
+.wx-tl-top{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.wx-tl-date{font-size:14px;font-weight:800;letter-spacing:.2px;white-space:nowrap}
+.wx-tl-sub{font-size:10.5px;color:#93c5fd;font-weight:600}
+.wx-tl-btns{margin-left:auto;display:flex;gap:5px}
+.wx-tl-btn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.10);color:#fff;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;line-height:1}
+.wx-tl-btn:hover{background:rgba(255,255,255,.22)}
+.wx-tl-btn.on{background:#2563eb;border-color:#60a5fa}
+.wx-tl-slider-wrap{position:relative;padding:2px 2px 0}
+.wx-tl-slider{-webkit-appearance:none;appearance:none;width:100%;height:7px;border-radius:5px;background:linear-gradient(90deg,rgba(56,189,248,.45),rgba(37,99,235,.55));outline:none;cursor:pointer}
+.wx-tl-slider::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid #2563eb;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+.wx-tl-slider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid #2563eb;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+.wx-tl-ticks{display:flex;justify-content:space-between;font-size:9px;color:#7da7d6;margin-top:4px;font-weight:600;padding:0 2px}
+.wx-tl-ticks span{white-space:nowrap}
+@media(max-width:767px){.wx-timeline{bottom:8px;padding:7px 12px 9px}.wx-tl-date{font-size:12px}.wx-tl-sub{display:none}}
+
+/* Метка-чип на выделенном регионе (Минск / Минский район / Минская область) */
+.wx-region-label{background:rgba(15,39,64,.82);color:#fff;border-radius:9px;padding:4px 9px;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;pointer-events:none;text-align:center;backdrop-filter:blur(3px);border:1px solid rgba(255,255,255,.25)}
+.wx-region-label .wx-rl-name{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;line-height:1.1;opacity:.9}
+.wx-region-label .wx-rl-vals{display:flex;flex-wrap:wrap;gap:3px 7px;justify-content:center;margin-top:3px}
+.wx-region-label .wx-rl-row{font-size:11.5px;font-weight:800;line-height:1.1;white-space:nowrap}
+.wx-region-label .wx-rl-empty{font-size:10px;font-style:italic;opacity:.7}
+/* Метка ячейки (район города / сельсовет) внутри Минска и Минского района */
+.wx-cell-label{background:rgba(15,39,64,.82);color:#fff;border-radius:6px;padding:2px 6px 3px;box-shadow:0 2px 8px rgba(0,0,0,.3);font-family:inherit;pointer-events:none;text-align:center;border:1px solid rgba(255,255,255,.18)}
+.wx-cell-label .wx-cl-name{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.2px;opacity:.82;line-height:1.05}
+.wx-cell-label .wx-cl-vals{display:flex;gap:4px;justify-content:center;font-size:9.5px;font-weight:800;line-height:1.1;margin-top:1px}
+/* Слой дождя (радар) — мягкие голубые закруглённые пятна, движется */
+.wx-radar-tile img{filter:blur(3px) saturate(1.4) brightness(1.05)}
+/* Область грозы — тёмно-синяя прозрачная с закруглением и пульсацией */
+.leaflet-pane.wxstorm path.wx-storm-circle{animation:wxStormPulse 2.4s ease-in-out infinite}
+@keyframes wxStormPulse{0%,100%{opacity:.85}50%{opacity:.45}}
+
+/* Анимация контура регионов с осадками (дождь/снег) */
+.leaflet-overlay-pane path.wx-region-rain,.leaflet-pane path.wx-region-rain{stroke-dasharray:7 5;animation:wxRegDash 1.2s linear infinite,wxRainGlow 1.5s ease-in-out infinite;filter:drop-shadow(0 0 5px rgba(56,189,248,.9))}
+.leaflet-overlay-pane path.wx-region-snow,.leaflet-pane path.wx-region-snow{stroke-dasharray:3 6;animation:wxRegDash 2s linear infinite,wxRainGlow 2s ease-in-out infinite;filter:drop-shadow(0 0 5px rgba(186,230,253,.9))}
+@keyframes wxRegDash{to{stroke-dashoffset:-24}}
+@keyframes wxRainGlow{0%,100%{filter:drop-shadow(0 0 3px rgba(56,189,248,.5))}50%{filter:drop-shadow(0 0 9px rgba(56,189,248,1))}}
+/* Окантовки Минск + Минский район */
+.leaflet-overlay-pane path.wx-region-outline,.leaflet-pane path.wx-region-outline{animation:wxOutlinePulse 3s ease-in-out infinite;filter:drop-shadow(0 0 4px rgba(14,165,233,.7))}
+@keyframes wxOutlinePulse{0%,100%{opacity:.7;filter:drop-shadow(0 0 3px rgba(14,165,233,.5))}50%{opacity:1;filter:drop-shadow(0 0 8px rgba(14,165,233,1))}}
+/* ПЛАВНЫЕ ПЕРЕХОДЫ ЦВЕТА ЯЧЕЕК */
+.leaflet-overlay-pane path.wx-cell,.leaflet-pane path.wx-cell{transition:fill .8s cubic-bezier(.4,0,.2,1),fill-opacity .8s ease,stroke .8s ease}
+/* ВОЛНА НА ПОЛЗУНКЕ */
+.wx-tl-slider-wrap{position:relative;padding:6px 4px 2px;overflow:visible}
+/* Ползунок: тонкая ЛИНИЯ (трек), поверх неё КРУЖОК. Волна проходит ТОЛЬКО через кружок
+   (расходящиеся кольца) и перемещается вместе с ним при перетаскивании. */
+.wx-tl-slider{-webkit-appearance:none;appearance:none;width:100%;height:24px;background:transparent;cursor:pointer;outline:none}
+.wx-tl-slider::-webkit-slider-runnable-track{height:4px;border-radius:4px;margin-top:10px;background:linear-gradient(90deg,rgba(56,189,248,.35),rgba(37,99,235,.6));box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.wx-tl-slider::-moz-range-track{height:4px;border-radius:4px;background:linear-gradient(90deg,rgba(56,189,248,.35),rgba(37,99,235,.6))}
+.wx-tl-slider::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-9px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#bfdbfe);border:3px solid #2563eb;cursor:grab;animation:wxThumbWave 1.8s ease-out infinite}
+.wx-tl-slider::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#bfdbfe);border:3px solid #2563eb;cursor:grab;box-shadow:0 2px 8px rgba(37,99,235,.45)}
+@keyframes wxThumbWave{0%{box-shadow:0 0 0 0 rgba(56,189,248,.55),0 0 0 0 rgba(37,99,235,.3),0 2px 8px rgba(37,99,235,.45)}55%{box-shadow:0 0 0 9px rgba(56,189,248,0),0 0 0 17px rgba(37,99,235,0),0 2px 8px rgba(37,99,235,.45)}100%{box-shadow:0 0 0 0 rgba(56,189,248,0),0 0 0 0 rgba(37,99,235,0),0 2px 8px rgba(37,99,235,.45)}}
+/* Сетка квадратов погоды + слой частиц */
+#wx-map-body{position:relative}
+#wx-map-canvas{position:relative;z-index:1}
+/* плавный переход цвета температуры в квадратах */
+.leaflet-pane path.wx-g-cell{transition:fill .4s ease,fill-opacity .4s ease}
+/* дождь / снег: анимированная пунктирная окантовка (как раньше) */
+.leaflet-overlay-pane path.wx-g-rain,.leaflet-pane path.wx-g-rain{stroke-dasharray:3 2;animation:wxGDash .7s linear infinite;filter:drop-shadow(0 0 3px rgba(56,189,248,.65))}
+.leaflet-overlay-pane path.wx-g-snow,.leaflet-pane path.wx-g-snow{stroke-dasharray:3 2;animation:wxGDash .9s linear infinite;filter:drop-shadow(0 0 3px rgba(203,213,225,.65))}
+@keyframes wxGDash{to{stroke-dashoffset:-10}}
+/* частицы поверх квадратов: дождь(капли)/снег(снежинки)/ветер(полосы) */
+#wx-particles{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:2}
+#wx-layers,#wx-timeline{z-index:20}
+.wx-cdrop{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none}
+.wx-cdrop .wx-drop{position:absolute;top:-25%;width:1.5px;height:11px;background:linear-gradient(rgba(186,230,253,0),rgba(125,211,252,.75));border-radius:2px;animation:wxCdrop linear infinite}
+@keyframes wxCdrop{0%{top:-25%;opacity:0}12%{opacity:1}88%{opacity:1}100%{top:110%;opacity:0}}
+.wx-cdrop .wx-flake{position:absolute;top:-15%;width:4px;height:4px;border-radius:50%;background:#e2e8f0;box-shadow:0 0 2px rgba(255,255,255,.9);animation:wxCflake linear infinite}
+@keyframes wxCflake{0%{top:-15%;opacity:0;transform:translateX(0)}12%{opacity:.95}88%{opacity:.9}100%{top:110%;opacity:0;transform:translateX(10px)}}
+.wx-p-wind{position:absolute;left:-12%;width:34px;height:2px;border-radius:2px;background:linear-gradient(90deg,rgba(167,139,250,0),rgba(167,139,250,.85),rgba(167,139,250,0));animation:wxPWind linear infinite}
+@keyframes wxPWind{0%{left:-12%;opacity:0}15%{opacity:.8}85%{opacity:.75}100%{left:112%;opacity:0}}
+.wxcells-pane svg g{opacity:.65}
+
+
+
+#wx-tabs{display:flex;background:#0f2740;border-bottom:1px solid rgba(255,255,255,.12)}.wx-tab{flex:1;padding:9px 8px;border:none;background:transparent;color:#94a3b8;font-weight:700;font-size:12px;font-family:inherit;cursor:pointer;border-bottom:3px solid transparent}.wx-tab.on{color:#fff;background:rgba(255,255,255,.06);border-bottom-color:#38bdf8}#wx-yandex{display:none;position:absolute;inset:0;z-index:30;flex-direction:column;background:#fff}#wx-yandex-bar{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#fef3c7;color:#78350f;font-size:11px;border-bottom:1px solid #fde68a}#wx-yandex-bar a{margin-left:auto;padding:5px 12px;background:#dc2626;color:#fff;border-radius:7px;text-decoration:none;font-weight:700;font-size:11px}#wx-yandex-frame{flex:1;width:100%;border:0;background:#fff}
+#wx-map-header{position:relative}#wx-map-header .wx-title{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:15px;font-weight:700;white-space:nowrap;flex:none;text-align:center}.wx-yandex-open{padding:7px 12px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:#fff;border-radius:8px;font-weight:700;font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap}
+.wx-popup .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.35)}.wx-popup .leaflet-popup-content{margin:9px 12px}.wx-pop{display:flex;gap:13px;align-items:flex-start}.wx-pop-item{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:30px}.wx-pop-ic{font-size:21px;line-height:1}.wx-pop-val{font-size:13.5px;font-weight:800;line-height:1}.wx-pop-empty{font-size:12px;color:#64748b}.wx-yandex-open.on{background:#f59e0b;border-color:#f59e0b;color:#1e3a5f}#wx-basemap-sel{margin-left:auto}.wx-back{padding:6px 12px;border:none;border-radius:7px;background:#0f2740;color:#fff;font-weight:700;font-size:12px;font-family:inherit;cursor:pointer}
+
+/* Полупрозрачная кнопка карты погоды с белой окантовкой (в полосе погоды) */
+.wx-map-fab{margin-left:10px;display:inline-flex;align-items:center;gap:7px;padding:8px 14px;background:rgba(255,255,255,.16);border:1.5px solid rgba(255,255,255,.85);color:#fff;border-radius:30px;font-size:12.5px;font-weight:700;cursor:pointer;backdrop-filter:blur(6px);transition:.2s;font-family:inherit;white-space:nowrap;position:relative;z-index:2;text-shadow:0 1px 4px rgba(0,0,0,.3);box-shadow:0 4px 14px rgba(0,0,0,.18)}
+.wx-map-fab:hover{background:rgba(255,255,255,.28);transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.28)}
+.wx-map-fab:active{transform:translateY(0)}
+@media(max-width:767px){.wx-map-fab{padding:6px 11px;font-size:11px}}
+@media(max-width:767px){#wx-map-window{inset:8px}}
+</style>
+</head>
+<body>
+<!-- ЭКРАН ВХОДА -->
+<div class="login-screen" id="login-screen">
+  <div class="login-wrap">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="root_index/logo.png" class="logo" alt="Логотип СЭОГС">
+      <div>
+        <div class="bt">SmartPlan</div>
+        <div class="bs">Планирование · УП «МИНГАЗ»</div>
+      </div>
+    </div>
+    <div class="login-body">
+      <h2>Вход в систему</h2>
+      <form id="login-form">
+        <div class="fld"><label>Логин</label><input id="li-login" autocomplete="username" placeholder="Введите логин"></div>
+        <div class="fld"><label>Пароль</label><input id="li-pass" type="password" autocomplete="current-password" placeholder="••••••"></div>
+        <div class="li-err" id="li-err"></div>
+        <button class="btn primary" type="submit" id="li-btn" style="width:100%;justify-content:center">Войти</button>
+        <div style="margin-top:16px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;color:#475569;line-height:1.4;">
+          <div style="font-weight:700;margin-bottom:6px;color:#0f2740;">💡 Стандартные аккаунты (автозаполнение):</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
+            <button type="button" class="btn sm" style="background:#fff;border:1px solid #cbd5e1;padding:4px 8px;font-size:11px;color:#0f2740;" onclick="document.getElementById('li-login').value='admin';document.getElementById('li-pass').value='admin123';">👑 admin / admin123 (Администратор)</button>
+            <button type="button" class="btn sm" style="background:#fff;border:1px solid #cbd5e1;padding:4px 8px;font-size:11px;color:#475569;" onclick="document.getElementById('li-login').value='seogs';document.getElementById('li-pass').value='seogs123';">👁 seogs / seogs123 (Начальник СЭОГС — просмотр)</button>
+            <button type="button" class="btn sm" style="background:#fff;border:1px solid #cbd5e1;padding:4px 8px;font-size:11px;color:#2563eb;" onclick="document.getElementById('li-login').value='master';document.getElementById('li-pass').value='master123';">👷 master / master123 (Мастер — Иванов С.П.)</button>
+            <button type="button" class="btn sm" style="background:#fff;border:1px solid #cbd5e1;padding:4px 8px;font-size:11px;color:#059669;" onclick="document.getElementById('li-login').value='slesar';document.getElementById('li-pass').value='slesar123';">🔧 slesar / slesar123 (Слесарь — Петров А.Н.)</button>
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:#64748b;">* Нажмите на кнопку для автозаполнения логина и пароля</div>
+        </div>
+      </form>
+      <div id="build-marker" style="margin-top:12px;text-align:center;font-size:10.5px;color:#94a3b8">Сборка 21.09-14 · Синхронизация: убран запрос прав (Not allowed to request permissions)</div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<div id="boot-splash"><img src="root_index/logo.png" alt="SmartPlan"><div class="boot-txt">SmartPlan загружается…</div></div>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <img src="root_index/logo.png" class="logo" alt="Логотип СЭОГС">
+      <div>
+        <div class="bt">SmartPlan</div>
+        <div class="bs">Планирование</div>
+      </div>
+    </div>
+    <div class="base-sel">
+      <label class="base-lbl">База:</label>
+      <select id="base-select" style="color:var(--ink);background:var(--card);font-weight:600;">
+        <option value="b1" style="color:var(--ink);background:var(--card);">г. Минск, ул. Ботаническая 11</option>
+        <option value="b2" style="color:var(--ink);background:var(--card);">г. Минск, ул. Волгоградская 3А</option>
+      </select>
+    </div>
+    <nav class="nav" id="nav">
+      <div class="grp">Оперативная работа</div>
+      <a data-screen="dashboard" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Панель мониторинга <span class="badge" id="rz-badge">0</span></a>
+      <div class="nav-acc" id="nav-plan">
+        <a data-screen="calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>Планирование / Календарь</a>
+        <div class="nav-sub">
+          <a data-screen="graphs" title="Годовой график работ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M7 17v-6"/><path d="M12 17V6"/><path d="M17 17v-10"/></svg>График работ</a>
+        </div>
+      </div>
+      <a data-screen="map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-6-3V4l6 3 6-3 6 3v13l-6-3-6 3z"/><path d="M9 7v13M15 4v13"/></svg>Карта маршрутов</a>
+      <a data-screen="livemap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg>Карта местоположения</a>
+      <a data-screen="objmap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-6-3V4l6 3 6-3 6 3v13l-6-3-6 3z"/><circle cx="10.3" cy="9.3" r="1.5" fill="currentColor" stroke="none"/><circle cx="14.6" cy="14.2" r="1.5" fill="currentColor" stroke="none"/></svg>Карта объектов</a>
+      <a data-screen="perms"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V7l-9-5z"/><path d="M9 12l2 2 4-4"/></svg>Разрешения</a>
+      <a data-screen="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Отчёты</a>
+      <a data-screen="workers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Работники</a>
+      <a data-screen="refs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20V3H6.5A2.5 2.5 0 004 5.5z"/><path d="M4 19.5V21h12"/></svg>Справочники</a>
+      <div class="grp">Администрирование</div>
+      <a data-screen="users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Пользователи</a>
+      <a data-screen="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/><path d="M3 12h2M19 12h2M12 3v2M12 19v2"/></svg>Журнал действий</a>
+      <a data-screen="wxtest" title="Погодный полигон: карта осадков (радар и прогноз)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 16.6A4 4 0 0018 9h-1.3A7 7 0 104 15.3"/><path d="M8 19v2M12 19v2M16 19v2"/></svg>Тест погодный</a>
+      <a data-screen="testmap" title="Полигон: копия «Карта маршрутов» для тестов"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v6l-5.2 8.3A2 2 0 005.5 20h13a2 2 0 001.7-2.7L15 9V3"/><path d="M8 3h8M7.5 14h9"/></svg>Тест</a>
+    </nav>
+    <div class="sb-foot">УП «МИНГАЗ» · v0.9 прототип<br>© 2026 SmartPlan</div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <header class="topbar">
+      <button class="burger" id="burger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <div>
+        <h1 id="screen-title">Дашборд</h1>
+        <div class="crumb" id="screen-crumb">Рабочий стол</div>
+      </div>
+      <div class="spacer"></div>
+      <div id="topbar-date" style="font-size:13px;font-weight:700;color:var(--blue);white-space:nowrap;"></div>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="sync-btn" title="Синхронизация базы через общую папку (несколько человек, без сервера)">🔄 <span id="sync-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#94a3b8;margin-left:3px;vertical-align:middle"></span></button>
+      <button class="btn ghost" data-action="logout" title="Выйти из системы"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg> Выйти</button>
+      <div class="usr">
+        <div class="av" id="av">—</div>
+        <div><div class="un" id="un">—</div><div class="ur" id="ur">—</div></div>
+      </div>
+    </header>
+    <main id="view"></main>
+  </div>
+</div>
+
+<div id="tip"></div>
+<div id="net-banner">🌐 Нет соединения — изменения сохраняются локально и уйдут на сервер автоматически</div>
+<div id="toasts"></div>
+<div id="report-month-dropdown" class="report-month-dropdown"></div>
+<div id="dash-month-dropdown" class="report-month-dropdown"></div>
+<div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+
+<script>
+/* ============================================================
+   ХРАНИЛИЩЕ-ФОЛБЭК (работа сайта одинаково во всех браузерах).
+   Edge при открытии сайта напрямую с диска (file://) или с
+   настройкой «Блокировать все файлы cookie» / корпоративной
+   политикой может ЗАПРЕЩАТЬ localStorage — любое обращение
+   бросает SecurityError. Ставим безопасную замену в памяти:
+   приложение полностью работает в любом браузере (данные живут
+   до перезагрузки страницы). Флаг window.SP_STORAGE_FALLBACK —
+   приложение показывает предупреждение.
+   Скрипт стоит ПЕРВЫМ — раньше всех *_db.js и app.js. */
+(function () {
+  function probe(store) {
+    try { store.setItem('__sp_probe__', '1'); store.removeItem('__sp_probe__'); return true; }
+    catch (e) { return false; }
+  }
+  function makeShim() {
+    var mem = {};
+    var shim = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+      setItem: function (k, v) { mem[k] = String(v); },
+      removeItem: function (k) { delete mem[k]; },
+      clear: function () { mem = {}; },
+      key: function (i) { var ks = Object.keys(mem); return i >= 0 && i < ks.length ? ks[i] : null; }
+    };
+    Object.defineProperty(shim, 'length', { get: function () { return Object.keys(mem).length; } });
+    return shim;
+  }
+  function patch(name) {
+    var real = null;
+    try { real = window[name]; } catch (e) { real = null; }
+    if (real && probe(real)) return false; // хранилище доступно — ничего не делаем
+    var shim = makeShim();
+    try {
+      Object.defineProperty(window, name, { configurable: true, get: function () { return shim; } });
+    } catch (e) {
+      try { window[name] = shim; } catch (e2) { return false; }
+    }
+    return true;
+  }
+  var lsBroken = patch('localStorage');
+  var ssBroken = patch('sessionStorage');
+  if (lsBroken || ssBroken) {
+    window.SP_STORAGE_FALLBACK = true;
+    /* Предупреждение на экране входа (маркер сборки уже есть в разметке выше) */
+    try {
+      var mk = document.getElementById('build-marker');
+      if (mk) {
+        var w = document.createElement('div');
+        w.id = 'storage-warn';
+        w.style.cssText = 'margin-top:8px;text-align:center;font-size:10.5px;color:#dc2626;font-weight:700;line-height:1.45;';
+        w.textContent = '⚠ Хранилище браузера недоступно — данные не сохранятся после закрытия страницы. Разрешите файлы cookie для этого сайта или откройте сайт в Chrome.';
+        mk.parentNode.insertBefore(w, mk.nextSibling);
+      }
+    } catch (e) {}
+  }
+})();
+</script>
+<script src="root_index/config.js"></script>
+<script src="root_index/data.js"></script>
+<script src="root_index/users_db.js"></script>
+<script src="root_index/areas_db.js"></script>
+<script src="root_index/work_db.js"></script>
+<script src="root_index/objects_db.js"></script>
+<script src="root_index/workers_db.js"></script>
+<script src="root_index/tasks_db.js"></script>
+<script src="root_index/db.js"></script>
+<!-- Попап-календарь -->
+<div id="date-popup">
+  <div class="dp-head">
+    <div class="dp-title" id="dp-month-year"></div>
+    <div class="dp-nav">
+      <button id="dp-prev" title="Назад">‹</button>
+      <button id="dp-today" title="Сегодня">●</button>
+      <button id="dp-next" title="Вперёд">›</button>
+    </div>
+  </div>
+  <div class="dp-grid" id="dp-grid"></div>
+  <div class="dp-actions">
+    <button id="dp-cancel">Закрыть</button>
+    <button class="primary" id="dp-apply">Выбрать</button>
+  </div>
+</div>
+
+<script src="root_index/sync.js"></script>
+<script src="root_index/app.js"></script>
+  <!-- PWA: офлайн-режим + иконка на домашнем экране (кэш — service worker sw.js) -->
+  <script>
+  (function () {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        try { navigator.serviceWorker.register('root_index/sw.js', { scope: '/' }).catch(function () {}); } catch (e) {}
+      });
+    }
+  })();
+  </script>
+</body>
+</html>
