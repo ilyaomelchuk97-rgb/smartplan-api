@@ -65,7 +65,15 @@ window.SP_SAVE_ALL = (function () {
     btnEl: null,
     dotEl: null,
     labelEl: null,
-    syncedHooked: false
+    ringEl: null,              // SVG-кольцо прогресса (60 с)
+    syncedHooked: false,
+    // ----- таймер обратного отсчёта -----
+    nextTickAt: 0,             // Date.now() ближайшего следующего автосохранения
+    tickInterval: 60 * 1000,   // период 60 сек
+    firstDelay: 5000,          // первый тик через 5 сек
+    rafHandle: null,           // requestAnimationFrame для плавной перерисовки
+    // ----- ошибки -----
+    lastErrorMsg: null         // текст последней ошибки (для отображения в кольце)
   };
 
   // Аккуратное чтение JSON-значения из localStorage
@@ -179,14 +187,19 @@ window.SP_SAVE_ALL = (function () {
     }
     var sync = window.SP_SYNC;
     if (!sync || typeof sync.cycle !== 'function') {
-      return Promise.resolve({ ok: false, err: 'sync не загружен' });
+      state.lastErrorMsg = 'sync не загружен';
+      updateIndicator('err');
+      return Promise.resolve({ ok: false, err: state.lastErrorMsg });
     }
     var st = (typeof sync.status === 'function') ? sync.status() : null;
     if (!st || !st.connected) {
+      // Не подключено — это не ошибка, а состояние. Возвращаем как есть.
+      updateIndicator('idle');
       return Promise.resolve({ ok: false, err: 'общая папка не подключена', needConnect: true });
     }
     state.saving = true;
     state.savingByUser = !!opts.byUser;
+    state.lastErrorMsg = null;
     updateIndicator('saving');
     // Параллельно: снапшот в localStorage + цикл синка
     var snapRes = snapshotWrite(collectSnapshot());
@@ -194,14 +207,16 @@ window.SP_SAVE_ALL = (function () {
     try { p = sync.cycle(); } catch (e) {
       state.saving = false;
       state.savingByUser = false;
+      state.lastErrorMsg = e && e.message || String(e);
       updateIndicator('err');
-      return Promise.resolve({ ok: false, err: e && e.message || String(e) });
+      return Promise.resolve({ ok: false, err: state.lastErrorMsg });
     }
     if (!p || typeof p.then !== 'function') {
       // sync.cycle в этой версии мог быть синхронным — считаем что запись будет
       state.lastFlush = Date.now();
       state.saving = false;
       state.savingByUser = false;
+      rescheduleNextTick();
       updateIndicator('ok');
       return Promise.resolve({ ok: true, wrote: true, msg: 'снапшот' + (snapRes ? '' : ' (нет localStorage)') });
     }
@@ -209,6 +224,7 @@ window.SP_SAVE_ALL = (function () {
       state.lastFlush = Date.now();
       state.saving = false;
       state.savingByUser = false;
+      rescheduleNextTick();
       if (res && res.ok) {
         updateIndicator('ok');
         return { ok: true, wrote: !!res.wrote, msg: res.wrote ? 'общий файл + снапшот' : 'без изменений' };
@@ -217,28 +233,55 @@ window.SP_SAVE_ALL = (function () {
         updateIndicator('idle');
         return { ok: false, skipped: true, msg: 'цикл пропущен (занят)' };
       }
+      state.lastErrorMsg = (res && res.err) || 'не удалось записать';
       updateIndicator('err');
-      return { ok: false, err: (res && res.err) || 'не удалось записать' };
+      return { ok: false, err: state.lastErrorMsg };
     })['catch'](function (e) {
       state.saving = false;
       state.savingByUser = false;
+      state.lastErrorMsg = e && e.message || String(e);
       updateIndicator('err');
-      return { ok: false, err: e && e.message || String(e) };
+      return { ok: false, err: state.lastErrorMsg };
     });
   }
 
   /* ---------- ИНДИКАТОР + КНОПКА ---------- */
-  // Цвет точки индикатора. Согласовано со стилями index.html (var --green/--muted).
-  function setDotColor(color) {
-    if (!state.dotEl) return;
-    state.dotEl.style.background = color;
-    state.dotEl.style.boxShadow = color === '#16a34a' ? '0 0 0 2px rgba(22,163,74,.18)' :
-                                  color === '#dc2626' ? '0 0 0 2px rgba(220,38,38,.18)' :
-                                  color === '#f59e0b' ? '0 0 0 2px rgba(245,158,11,.18)' :
-                                  'none';
+  // Цвета состояния: задаются единым набором для кольца, иконки и подписи.
+  // saving — жёлтый (в процессе); err — красный; idle-ok — зелёный;
+  // no-folder — серый (только локальный снапшот).
+  var COLORS = {
+    ok:        '#16a34a',
+    saving:    '#f59e0b',
+    err:       '#dc2626',
+    noFolder:  '#94a3b8',
+    soonWarn:  '#f59e0b'  // когда осталось <= 10 с до тика
+  };
+  // SVG-кольцо (окружность r=9): периметр = 2 * Math.PI * 9 ≈ 56.549
+  var RING_PERIM = 2 * Math.PI * 9;
+
+  function setRingColor(color) {
+    if (!state.ringEl) return;
+    state.ringEl.setAttribute('stroke', color);
   }
-  function setLabelText(text) {
-    if (state.labelEl) state.labelEl.textContent = text;
+  function setRingProgress(fraction) {  // 0 = пусто, 1 = полное кольцо
+    if (!state.ringEl) return;
+    var off = (1 - Math.max(0, Math.min(1, fraction))) * RING_PERIM;
+    state.ringEl.setAttribute('stroke-dashoffset', off.toFixed(2));
+  }
+  function ensureLabel() {
+    if (state.labelEl) return state.labelEl;
+    var lbl = document.createElement('span');
+    lbl.style.cssText = 'margin-left:6px;font-size:11px;color:var(--muted);font-weight:600;display:none;white-space:nowrap';
+    lbl.id = 'save-all-label';
+    state.btnEl.appendChild(lbl);
+    state.labelEl = lbl;
+    return lbl;
+  }
+  function setLabelText(text, color) {
+    var lbl = ensureLabel();
+    lbl.textContent = text;
+    if (color) lbl.style.color = color;
+    lbl.style.display = '';
   }
   function fmtAgo(ts) {
     if (!ts) return '—';
@@ -248,38 +291,76 @@ window.SP_SAVE_ALL = (function () {
     if (dt < 3600) return Math.round(dt / 60) + ' мин назад';
     return Math.round(dt / 3600) + ' ч назад';
   }
-  // Режимы: idle (серый, без текста), saving (жёлтый, «идёт сохранение…»),
-  // ok (зелёный, «сохранено N с назад»), err (красный, «ошибка»), no-folder (мутный).
-  function updateIndicator(mode) {
-    if (!state.btnEl || !state.dotEl) return;
+
+  /* ----- ПЛАВНАЯ ПЕРЕРИСОВКА (60 fps) -----
+     Каждый кадр пересчитывает прогресс кольца и текст отсчёта.
+     Делает одну работу — обновляет DOM. Не запускает никаких циклов. */
+  function renderTick() {
+    if (!state.btnEl || !state.ringEl) return;
     var sync = window.SP_SYNC;
     var st = (sync && sync.status) ? sync.status() : null;
     var connected = st && st.connected;
-    var lastSave = state.lastFlush || state.lastSnap;
-    if (!state.labelEl) {
-      // инициализация label если его не было
-      var lbl = document.createElement('span');
-      lbl.style.cssText = 'margin-left:6px;font-size:11px;color:var(--muted);font-weight:600;display:none';
-      lbl.id = 'save-all-label';
-      state.btnEl.appendChild(lbl);
-      state.labelEl = lbl;
-    }
-    if (mode === 'saving') {
-      setDotColor('#f59e0b'); setLabelText('⏳ сохраняю…'); state.labelEl.style.display = '';
+    var now = Date.now();
+    // В процессе сохранения — кольцо полное (как «индикатор загрузки»), текст «сохраняю…»
+    if (state.saving) {
+      setRingColor(COLORS.saving);
+      setRingProgress(1);
+      setLabelText('⏳ сохраняю…', COLORS.saving);
+      // маленькая анимация «дыхания» — кольцо мигает прозрачностью
+      if (state.ringEl) state.ringEl.style.opacity = (Math.sin(now / 200) + 1) / 2 * 0.6 + 0.4;
+      scheduleRender();
       return;
     }
-    if (mode === 'err') {
-      setDotColor('#dc2626'); setLabelText('⚠ ошибка'); state.labelEl.style.display = '';
+    // Ошибка — кольцо полное красное
+    if (state.lastError) {
+      setRingColor(COLORS.err);
+      setRingProgress(1);
+      if (state.ringEl) state.ringEl.style.opacity = 1;
+      setLabelText('⚠ ошибка' + (state.lastError ? ': ' + state.lastError : ''), COLORS.err);
+      scheduleRender();
       return;
     }
+    // Папка не подключена — серое кольцо, считает до снапшота (он всё равно пишется локально)
     if (!connected) {
-      setDotColor('#94a3b8'); setLabelText('общая папка не подключена'); state.labelEl.style.display = '';
+      setRingColor(COLORS.noFolder);
+      setRingProgress(state.nextTickAt > now ? (now - (state.nextTickAt - state.tickInterval)) / state.tickInterval : 0);
+      if (state.ringEl) state.ringEl.style.opacity = 1;
+      var remain0 = state.nextTickAt > now ? Math.ceil((state.nextTickAt - now) / 1000) : 0;
+      setLabelText('⏳ снапшот через ' + remain0 + ' с', COLORS.noFolder);
+      scheduleRender();
       return;
     }
-    // ok/idle
-    setDotColor('#16a34a');
-    setLabelText('✓ сохранено ' + fmtAgo(lastSave));
-    state.labelEl.style.display = '';
+    // OK — зелёное кольцо с обратным отсчётом
+    var remain = state.nextTickAt > now ? Math.ceil((state.nextTickAt - now) / 1000) : 0;
+    var frac = state.nextTickAt > now ? (now - (state.nextTickAt - state.tickInterval)) / state.tickInterval : 0;
+    setRingProgress(frac);
+    if (state.ringEl) state.ringEl.style.opacity = 1;
+    // Когда осталось ≤10 с — кольцо и текст оранжевеют (предупреждение)
+    if (remain > 0 && remain <= 10) {
+      setRingColor(COLORS.soonWarn);
+      setLabelText('⏳ через ' + remain + ' с', COLORS.soonWarn);
+    } else {
+      setRingColor(COLORS.ok);
+      setLabelText('⏳ через ' + remain + ' с', 'var(--muted)');
+    }
+    scheduleRender();
+  }
+  function scheduleRender() {
+    if (state.rafHandle) return;
+    state.rafHandle = requestAnimationFrame(function () {
+      state.rafHandle = null;
+      renderTick();
+    });
+  }
+
+  // Режимы: idle, saving (жёлтый, «идёт сохранение…»), err (красный, «ошибка»).
+  // При любом режиме — плавная перерисовка кольца через renderTick().
+  function updateIndicator(mode) {
+    if (!state.btnEl || !state.ringEl) return;
+    state.lastError = (mode === 'err') ? (state.lastErrorMsg || 'сохранение не удалось') : null;
+    if (mode !== 'err') state.lastErrorMsg = null;
+    // принудительно перерисовать
+    renderTick();
   }
 
   // Кнопка «💾 Сохранить всё» в топбаре. Если папка не подключена —
@@ -327,12 +408,12 @@ window.SP_SAVE_ALL = (function () {
       var p = orig();
       if (!p || typeof p.then !== 'function') {
         // sync был синхронный (старый API) — снапшот после первого успешного
-        try { snapshotWrite(collectSnapshot()); updateIndicator('ok'); } catch (e) {}
+        try { snapshotWrite(collectSnapshot()); state.lastFlush = Date.now(); rescheduleNextTick(); updateIndicator('ok'); } catch (e) {}
         return p;
       }
       return p.then(function (res) {
         if (res && res.ok) {
-          try { snapshotWrite(collectSnapshot()); state.lastFlush = Date.now(); updateIndicator('ok'); } catch (e) {}
+          try { snapshotWrite(collectSnapshot()); state.lastFlush = Date.now(); rescheduleNextTick(); updateIndicator('ok'); } catch (e) {}
         }
         return res;
       });
@@ -340,16 +421,35 @@ window.SP_SAVE_ALL = (function () {
     state.syncedHooked = true;
   }
 
+  /* ---------- ПЕРЕПЛАНИРОВКА СЛЕДУЮЩЕГО ТИКА ----------
+     Каждый раз, когда сохранение произошло — следующий авто-тик
+     запланирован через 60 с от ТЕКУЩЕГО момента. Это защищает от
+     дрейфа (если interval тикал не вовремя — теперь он всегда
+     «60 с после последнего сохранения»). */
+  function rescheduleNextTick() {
+    state.nextTickAt = Date.now() + state.tickInterval;
+  }
+
   /* ---------- АВТОСОХРАНЕНИЕ КАЖДУЮ 1 МИНУТУ ---------- */
   // Безопасный запуск: первый цикл через 5 секунд после init, дальше
   // раз в 60 секунд. Если папка не подключена — снапшот всё равно
   // пишем (резервная копия в localStorage).
+  // Кольцо прогресса считает до state.nextTickAt, обновляясь через
+  // requestAnimationFrame (renderTick).
   function startAutoLoop() {
     stopAutoLoop();
+    state.nextTickAt = Date.now() + state.firstDelay;  // первый тик через 5 с
+    // Используем setInterval как fallback, но реальный «счёт до тика»
+    // идёт по nextTickAt. Это значит, что даже если бы интервал
+    // пропустил тик — мы поймаем это при следующем renderTick.
+    state.timer = setInterval(function () {
+      // Если nextTickAt прошёл — тикаем; иначе ждём (не делаем лишних сохранений)
+      if (Date.now() >= state.nextTickAt) autoTick();
+    }, 1000);  // проверка каждую секунду (но фактический flush — раз в 60 с)
+    // Гарантируем первый авто-тик через 5 секунд:
     setTimeout(function () {
-      autoTick();
-    }, 5000);
-    state.timer = setInterval(autoTick, 60 * 1000);
+      if (Date.now() >= state.nextTickAt - (state.tickInterval - state.firstDelay)) autoTick();
+    }, state.firstDelay);
   }
   function autoTick() {
     try {
@@ -360,24 +460,31 @@ window.SP_SAVE_ALL = (function () {
       } else {
         // Папка не подключена — пишем только локальный снапшот
         snapshotWrite(collectSnapshot());
+        state.lastErrorMsg = null;
+        rescheduleNextTick();
         updateIndicator('idle');
       }
     } catch (e) {
       console.warn('save_all autoTick:', e);
+      state.lastErrorMsg = e && e.message || String(e);
       updateIndicator('err');
     }
   }
   function stopAutoLoop() {
     if (state.timer) { clearInterval(state.timer); state.timer = null; }
+    if (state.rafHandle) { cancelAnimationFrame(state.rafHandle); state.rafHandle = null; }
   }
 
   /* ---------- УСТАНОВКА КНОПКИ В ТОПБАР ---------- */
   // Ищем существующую кнопку или создаём рядом с sync-btn.
+  // Кнопка содержит: SVG-кольцо прогресса (60 с) + эмодзи «💾» по центру +
+  // маленькую точку-индикатор (для статуса) + текстовую подпись (отсчёт/состояние).
   function ensureButton() {
     if (document.getElementById('save-all-btn')) {
       state.btnEl = document.getElementById('save-all-btn');
       state.dotEl = document.getElementById('save-all-dot');
       state.labelEl = document.getElementById('save-all-label');
+      state.ringEl = document.getElementById('save-all-ring');
       return;
     }
     var syncBtn = document.getElementById('sync-btn');
@@ -387,7 +494,19 @@ window.SP_SAVE_ALL = (function () {
     btn.className = 'btn ghost';
     btn.title = 'Сохранить всё (включая годовые графики) в общую папку. Авто-каждую минуту.';
     btn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
-    btn.innerHTML = '💾<span id="save-all-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#94a3b8;margin-left:1px;vertical-align:middle"></span>';
+    // SVG-кольцо 22×22 px. cx=11, cy=11, r=9 — окружность с периметром 2π·9 ≈ 56.55
+    // stroke-dasharray = «P, P» где P — периметр; dashoffset 0 → полное кольцо,
+    // dashoffset P → пустое. Анимируем смещением в обратном отсчёте.
+    btn.innerHTML =
+      '<span id="save-all-ring-wrap" style="position:relative;display:inline-block;width:22px;height:22px;vertical-align:middle">' +
+        '<svg id="save-all-ring" width="22" height="22" viewBox="0 0 22 22" style="transform:rotate(-90deg);position:absolute;inset:0">' +
+          '<circle cx="11" cy="11" r="9" fill="none" stroke="#e2e8f0" stroke-width="2.2"></circle>' +
+          '<circle id="save-all-ring-fg" cx="11" cy="11" r="9" fill="none" stroke="#16a34a" stroke-width="2.2"' +
+            ' stroke-linecap="round" stroke-dasharray="56.55" stroke-dashoffset="0"' +
+            ' style="transition:stroke .25s ease, stroke-dashoffset .4s linear"></circle>' +
+        '</svg>' +
+        '<span id="save-all-icon" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1">💾</span>' +
+      '</span>';
     btn.addEventListener('click', onSaveAllClick);
     // Ставим после sync-btn, перед logout
     var logout = document.querySelector('[data-action="logout"]');
@@ -397,7 +516,9 @@ window.SP_SAVE_ALL = (function () {
       syncBtn.parentNode.insertBefore(btn, syncBtn.nextSibling);
     }
     state.btnEl = btn;
-    state.dotEl = document.getElementById('save-all-dot');
+    state.ringEl = document.getElementById('save-all-ring-fg');
+    state.dotEl = document.getElementById('save-all-dot'); // backward-compat: точка больше не в DOM, но оставляем null
+    state.dotEl = null;
     state.labelEl = null;
   }
 
@@ -412,12 +533,12 @@ window.SP_SAVE_ALL = (function () {
     try { hookSyncCycle(); } catch (e) { console.warn('save_all hookSyncCycle:', e); }
     // 3) Первый снапшот — сразу
     try { snapshotWrite(collectSnapshot()); } catch (e) {}
-    // 4) Индикатор
+    // 4) Индикатор + первый кадр кольца
     updateIndicator('idle');
-    // 5) Авто-петля
+    // 5) Авто-петля (внутри стартует renderTick через requestAnimationFrame)
     startAutoLoop();
-    // Периодически обновлять «N мин назад»
-    setInterval(function () { updateIndicator(state.saving ? 'saving' : 'idle'); }, 15000);
+    // Гарантируем, что кольцо отрисуется сразу (до первого таймаута)
+    renderTick();
   }
 
   // Восстановить снапшот в localStorage (если данные были утеряны).
